@@ -1,6 +1,6 @@
 services:
   pdf-service:
-    image: ghcr.io/cbo7512/pdf-service:latest
+    build: .
     ports:
       - "8000:8000"
     restart: unless-stopped
