@@ -1,0 +1,3190 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocFlow — PDF Yönetim Platformu</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════
+   DESIGN SYSTEM
+═══════════════════════════════════════════════════════ */
+:root {
+  --bg:        #f0f2f7;
+  --surface:   #ffffff;
+  --surface2:  #f7f8fc;
+  --surface3:  #eef0f7;
+  --border:    #e2e6f0;
+  --border2:   #d0d5e8;
+  --text:      #1a1d2e;
+  --text2:     #5a5f7a;
+  --text3:     #9398b2;
+  --primary:   #2563eb;
+  --primary-l: #eff6ff;
+  --primary-d: #1d4ed8;
+  --green:     #16a34a;
+  --green-l:   #f0fdf4;
+  --red:       #dc2626;
+  --red-l:     #fef2f2;
+  --amber:     #d97706;
+  --amber-l:   #fffbeb;
+  --purple:    #7c3aed;
+  --purple-l:  #f5f3ff;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --shadow:    0 4px 16px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
+  --shadow-lg: 0 20px 48px rgba(0,0,0,.12), 0 8px 16px rgba(0,0,0,.06);
+  --radius:    12px;
+  --radius-sm: 8px;
+  --radius-lg: 18px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+}
+
+/* ── SCREENS ── */
+.screen { display: none; }
+.screen.active { display: flex; }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px; font-weight: 600; font-family: 'Outfit', sans-serif;
+  border: none; cursor: pointer; transition: all 0.18s; white-space: nowrap;
+}
+.btn-primary   { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-d); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37,99,235,.35); }
+.btn-success   { background: var(--green); color: #fff; }
+.btn-success:hover { background: #15803d; transform: translateY(-1px); }
+.btn-danger    { background: var(--red); color: #fff; }
+.btn-danger:hover { background: #b91c1c; }
+.btn-ghost     { background: transparent; color: var(--text2); border: 1.5px solid var(--border2); }
+.btn-ghost:hover { background: var(--surface3); color: var(--text); }
+.btn-amber     { background: var(--amber); color: #fff; }
+.btn-amber:hover { background: #b45309; }
+.btn-sm        { padding: 6px 13px; font-size: 12.5px; }
+.btn-lg        { padding: 13px 28px; font-size: 15px; }
+.btn-block     { width: 100%; }
+.btn:disabled  { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+/* ── FORM ELEMENTS ── */
+.form-group    { margin-bottom: 18px; }
+.form-label    { display: block; font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 7px; letter-spacing: 0.3px; }
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1.5px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 14px; font-family: 'Outfit', sans-serif; color: var(--text);
+  outline: none; transition: border-color 0.18s, box-shadow 0.18s;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+.form-textarea { resize: vertical; min-height: 90px; }
+.form-hint     { font-size: 12px; color: var(--text3); margin-top: 5px; }
+
+/* ── BADGE ── */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600;
+}
+.badge-primary { background: var(--primary-l); color: var(--primary); }
+.badge-green   { background: var(--green-l); color: var(--green); }
+.badge-red     { background: var(--red-l); color: var(--red); }
+.badge-amber   { background: var(--amber-l); color: var(--amber); }
+.badge-purple  { background: var(--purple-l); color: var(--purple); }
+.badge-gray    { background: var(--surface3); color: var(--text2); }
+
+/* ── CARD ── */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.card-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.card-body  { padding: 22px; }
+
+/* ── DIVIDER ── */
+.divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+/* ── AVATAR ── */
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+.avatar-blue   { background: var(--primary-l); color: var(--primary); }
+.avatar-green  { background: var(--green-l); color: var(--green); }
+.avatar-purple { background: var(--purple-l); color: var(--purple); }
+.avatar-amber  { background: var(--amber-l); color: var(--amber); }
+
+/* ── TABLE ── */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  padding: 11px 16px; text-align: left;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--text3); background: var(--surface2); border-bottom: 2px solid var(--border);
+}
+.data-table td {
+  padding: 13px 16px; font-size: 13.5px; color: var(--text2);
+  border-bottom: 1px solid var(--border);
+}
+.data-table tr:hover td { background: var(--surface2); }
+.data-table tr:last-child td { border-bottom: none; }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15,18,35,.5); backdrop-filter: blur(6px);
+  z-index: 500; display: none;
+  align-items: center; justify-content: center; padding: 20px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); width: 100%; max-width: 520px;
+  max-height: 90vh; overflow-y: auto;
+  animation: modalIn 0.22s cubic-bezier(0.34,1.56,0.64,1);
+}
+.modal-header {
+  padding: 22px 24px 0;
+  display: flex; align-items: flex-start; justify-content: space-between;
+}
+.modal-title { font-size: 18px; font-weight: 700; }
+.modal-close {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--surface3); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: var(--text2); transition: all 0.15s; flex-shrink: 0;
+}
+.modal-close:hover { background: var(--border2); color: var(--text); }
+.modal-body    { padding: 20px 24px 24px; }
+
+/* ── TOAST ── */
+#toast-container {
+  position: fixed; bottom: 24px; right: 24px;
+  z-index: 9999; display: flex; flex-direction: column; gap: 10px;
+}
+.toast {
+  background: var(--text); color: #fff;
+  padding: 12px 18px; border-radius: var(--radius-sm);
+  font-size: 13.5px; font-weight: 500;
+  display: flex; align-items: center; gap: 9px;
+  box-shadow: var(--shadow-lg);
+  animation: toastIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  max-width: 340px;
+}
+.toast.success { background: var(--green); }
+.toast.error   { background: var(--red); }
+.toast.info    { background: var(--primary); }
+
+@keyframes modalIn { from { opacity:0; transform:translateY(16px) scale(.97); } to { opacity:1; transform:none; } }
+@keyframes toastIn { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:none; } }
+@keyframes spin     { to { transform: rotate(360deg); } }
+@keyframes fadeIn   { from { opacity:0; } to { opacity:1; } }
+
+/* ── OTP INPUT ── */
+.otp-inputs { display: flex; gap: 10px; justify-content: center; margin: 22px 0; }
+.otp-digit {
+  width: 52px; height: 58px;
+  text-align: center; font-size: 24px; font-weight: 700;
+  border: 2px solid var(--border2); border-radius: var(--radius-sm);
+  background: var(--surface2); color: var(--text); outline: none;
+  font-family: 'JetBrains Mono', monospace;
+  transition: all 0.18s;
+}
+.otp-digit:focus { border-color: var(--primary); background: var(--primary-l); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+
+/* ── SPINNER ── */
+.spinner {
+  width: 20px; height: 20px;
+  border: 2.5px solid rgba(255,255,255,.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.spinner-dark {
+  border-color: rgba(37,99,235,.2);
+  border-top-color: var(--primary);
+}
+
+/* ── PROGRESS BAR ── */
+.progress-bar { height: 4px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--primary); border-radius: 99px; transition: width 0.4s ease; }
+
+/* ─────────────────────────────────────────────────────
+   SCREEN 1: ADMIN SETUP
+───────────────────────────────────────────────────── */
+#screen-setup {
+  min-height: 100vh; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 50%, #f3e8ff 100%);
+}
+.setup-card {
+  background: var(--surface); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); width: 100%; max-width: 460px;
+  padding: 42px;
+}
+.setup-logo {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 32px; justify-content: center;
+}
+.logo-mark {
+  width: 44px; height: 44px; background: var(--primary); border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; color: #fff; box-shadow: 0 4px 14px rgba(37,99,235,.3);
+}
+.logo-text { font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: -0.5px; }
+.logo-text span { color: var(--primary); }
+.setup-step { display: none; }
+.setup-step.active { display: block; }
+.setup-heading { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.setup-sub     { color: var(--text2); font-size: 13.5px; margin-bottom: 28px; line-height: 1.55; }
+
+/* ─────────────────────────────────────────────────────
+   SCREEN 2: LOGIN
+───────────────────────────────────────────────────── */
+#screen-login {
+  min-height: 100vh; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 60%, #fef3c7 100%);
+}
+.login-card {
+  background: var(--surface); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); width: 100%; max-width: 420px; padding: 42px;
+}
+.login-role-tabs {
+  display: flex; gap: 4px; background: var(--surface3);
+  border-radius: var(--radius-sm); padding: 4px; margin-bottom: 28px;
+}
+.role-tab {
+  flex: 1; padding: 8px; text-align: center;
+  font-size: 13px; font-weight: 600; border-radius: 6px;
+  cursor: pointer; transition: all 0.18s; color: var(--text2); border: none; background: transparent;
+}
+.role-tab.active { background: var(--surface); color: var(--primary); box-shadow: var(--shadow-sm); }
+
+/* ─────────────────────────────────────────────────────
+   SCREEN 3: APP (main shell)
+───────────────────────────────────────────────────── */
+#screen-app {
+  min-height: 100vh; flex-direction: column;
+}
+
+/* TOPNAV */
+.topnav {
+  height: 58px; background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 24px; gap: 16px;
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+.topnav-logo { display: flex; align-items: center; gap: 9px; text-decoration: none; }
+.topnav-logo .logo-mark { width: 34px; height: 34px; font-size: 15px; }
+.topnav-logo .logo-text { font-size: 18px; }
+.topnav-nav { display: flex; gap: 4px; margin-left: 20px; }
+.nav-item {
+  padding: 7px 14px; border-radius: var(--radius-sm);
+  font-size: 13.5px; font-weight: 500; color: var(--text2);
+  cursor: pointer; border: none; background: transparent;
+  transition: all 0.15s; display: flex; align-items: center; gap: 7px;
+}
+.nav-item:hover  { background: var(--surface3); color: var(--text); }
+.nav-item.active { background: var(--primary-l); color: var(--primary); font-weight: 600; }
+.nav-item .nav-badge {
+  background: var(--red); color: #fff;
+  min-width: 18px; height: 18px; border-radius: 9px;
+  font-size: 10.5px; font-weight: 700; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.topnav-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.user-pill {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 6px; border-radius: 99px;
+  background: var(--surface2); border: 1px solid var(--border); cursor: pointer;
+  transition: all 0.15s;
+}
+.user-pill:hover { background: var(--surface3); }
+.user-pill-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.user-pill-role { font-size: 11px; color: var(--text3); }
+
+/* APP CONTENT */
+.app-body { flex: 1; display: flex; overflow: hidden; }
+.main-content { flex: 1; overflow-y: auto; padding: 28px; }
+
+/* PANELS */
+.panel { display: none; }
+.panel.active { display: block; animation: fadeIn 0.2s; }
+
+/* ─────────────────────────────────────────────────────
+   PANEL: DASHBOARD
+───────────────────────────────────────────────────── */
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 28px; }
+.stat-card {
+  background: var(--surface); border-radius: var(--radius); padding: 22px;
+  border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+}
+.stat-icon {
+  width: 44px; height: 44px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  margin-bottom: 14px;
+}
+.stat-value { font-size: 28px; font-weight: 800; color: var(--text); line-height: 1; margin-bottom: 4px; }
+.stat-label { font-size: 13px; color: var(--text2); font-weight: 500; }
+.stat-trend { font-size: 12px; margin-top: 6px; font-weight: 600; }
+.stat-trend.up   { color: var(--green); }
+.stat-trend.down { color: var(--red); }
+
+.dash-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
+
+/* ─────────────────────────────────────────────────────
+   PANEL: PDF EDITOR
+───────────────────────────────────────────────────── */
+
+/* Full-width professional toolbar */
+.editor-topbar {
+  background: var(--surface);
+  border-bottom: 2px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 16px; height: 60px; gap: 0;
+  flex-shrink: 0; overflow-x: auto; overflow-y: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.tbar-sep { width: 1px; height: 36px; background: var(--border); margin: 0 10px; flex-shrink: 0; }
+.tbar-group { display: flex; align-items: center; gap: 2px; }
+.tbar-group-wrap { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.tbar-group-label {
+  font-size: 9px; font-weight: 700; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin-bottom: 3px; white-space: nowrap;
+}
+/* Labeled tool button (icon + text) */
+.tbar-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; min-width: 52px; height: 46px; padding: 4px 6px;
+  border-radius: 8px; border: none; background: transparent; cursor: pointer;
+  color: var(--text2); font-family: 'Outfit', sans-serif; transition: all 0.15s;
+  white-space: nowrap;
+}
+.tbar-btn .ti { font-size: 18px; line-height: 1; }
+.tbar-btn .tl { font-size: 10px; font-weight: 600; }
+.tbar-btn:hover  { background: var(--surface3); color: var(--text); }
+.tbar-btn.active { background: var(--primary-l); color: var(--primary); }
+.tbar-btn:disabled { opacity: .35; cursor: not-allowed; }
+/* Small icon-only button */
+.tool-btn {
+  width: 34px; height: 34px; border-radius: 7px;
+  background: transparent; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700; color: var(--text2); transition: all 0.15s;
+}
+.tool-btn:hover  { background: var(--surface3); color: var(--text); }
+.tool-btn.active { background: var(--primary-l); color: var(--primary); }
+/* Navigation row inside topbar */
+.tbar-nav-row { display: flex; align-items: center; gap: 4px; }
+.tbar-counter {
+  font-size: 13px; font-family: 'JetBrains Mono', monospace;
+  color: var(--text); font-weight: 600; min-width: 52px; text-align: center;
+}
+/* Color dot */
+.cpick {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+  border: 2.5px solid transparent; transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 0 0 1.5px var(--border2);
+}
+.cpick:hover  { transform: scale(1.2); }
+.cpick.sel    { box-shadow: 0 0 0 2.5px var(--primary) !important; transform: scale(1.15); }
+
+/* 3-column body layout */
+.editor-layout {
+  display: grid; grid-template-columns: 200px 1fr 300px; gap: 0; flex: 1; min-height: 0;
+}
+.editor-pages {
+  background: var(--surface2); border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 14px 10px;
+}
+.editor-pages-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text3); padding: 0 8px 10px; }
+.page-thumb {
+  background: #fff; border: 2px solid var(--border); border-radius: 8px;
+  margin-bottom: 10px; padding: 6px; cursor: pointer; transition: all 0.15s; text-align: center;
+}
+.page-thumb:hover  { border-color: var(--primary); }
+.page-thumb.active { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+.page-thumb canvas, .page-thumb img { width: 100%; display: block; border-radius: 3px; }
+.page-thumb-num    { font-size: 10px; color: var(--text3); margin-top: 4px; font-weight: 600; }
+.editor-canvas {
+  background: #3a3d40; overflow: auto; display: flex;
+  align-items: flex-start; justify-content: center; padding: 32px; position: relative;
+}
+
+/* Status bar at bottom of canvas */
+.editor-statusbar {
+  position: sticky; bottom: 0; left: 0; right: 0;
+  background: rgba(30,32,38,.85); backdrop-filter: blur(6px);
+  color: #ccc; font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  padding: 5px 14px; display: flex; gap: 16px; align-items: center;
+  border-top: 1px solid rgba(255,255,255,.08); z-index: 30;
+}
+
+.tool-group { display: flex; gap: 4px; align-items: center; }
+.tool-sep   { width: 1px; height: 26px; background: var(--border); margin: 0 4px; }
+.tool-btn .ttip {
+  position: absolute; bottom: -32px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: #fff; padding: 4px 9px; border-radius: 5px;
+  font-size: 11px; white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 0.15s; z-index: 50;
+}
+.tool-btn:hover .ttip { opacity: 1; }
+
+.pdf-page-wrap {
+  position: relative; display: inline-block;
+  box-shadow: 0 8px 32px rgba(0,0,0,.35);
+}
+#main-canvas { display: block; }
+/* text-layer: not used for interaction */
+#text-layer  {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  overflow: hidden; pointer-events: none; z-index: 1;
+}
+/* edit-layer: holds all txt-overlay divs */
+#edit-layer {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 10;
+}
+/* txt-overlay: sits exactly over PDF text, transparent by default */
+.txt-overlay {
+  position: absolute;
+  pointer-events: none;   /* enabled only in edit/select mode via JS */
+  cursor: text;
+  user-select: none;
+  -webkit-user-select: none;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px solid transparent;
+  border-radius: 2px;
+  color: transparent;     /* hide our text — show canvas PDF text underneath */
+  overflow: visible;
+  white-space: pre;
+}
+/* Hover: subtle outline only — NO background fill */
+body.tool-edit .txt-overlay:not([contenteditable="true"]):hover,
+body.tool-select .txt-overlay:not([contenteditable="true"]):hover {
+  border-color: rgba(37,99,235,.55);
+  outline: none;
+  cursor: text;
+}
+/* Active editing: white bg covers PDF text, user types new content */
+.txt-overlay[contenteditable="true"] {
+  background: #ffffff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.18), 0 2px 10px rgba(0,0,0,.1) !important;
+  z-index: 50 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  color: #1a1d2e !important;
+  outline: none;
+  min-width: 60px;
+  user-select: text;
+  -webkit-user-select: text;
+  /* font-weight/family inherited from element style — not overridden */
+}
+/* After edit committed: show new text over PDF */
+.txt-overlay.edited {
+  color: var(--edit-color, #1a1d2e) !important;
+  background: var(--edit-bg, #ffffff) !important;
+  border-color: rgba(37,99,235,.2) !important;
+  font-weight: var(--edit-fw, normal) !important;
+}
+/* annot-layer: draggable annotations (rect, text, highlight) */
+#annot-layer {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 20;
+}
+#annot-layer .annot { pointer-events: all; }
+/* click-capture: fallback for clicks between overlays */
+#click-capture {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 5; pointer-events: none;
+}
+/* edit-overlay merged into txt-overlay */
+.edit-block {
+  position: absolute; pointer-events: all; border: 1.5px solid transparent;
+  border-radius: 3px; cursor: pointer; transition: border-color 0.15s;
+}
+.edit-block:hover    { border-color: rgba(37,99,235,.4); background: rgba(37,99,235,.04); }
+.edit-block.editing  { border-color: var(--primary) !important; background: rgba(37,99,235,.06) !important; outline: none; cursor: text; }
+.edit-block.modified { border-color: rgba(220,38,38,.4); }
+.annot { position: absolute; pointer-events: all; z-index: 12; cursor: move; }
+.annot-text-inner {
+  background: transparent;
+  border: 1.5px solid transparent;
+  border-radius: 3px; padding: 2px 4px;
+  font-size: 14px; color: inherit;
+  min-width: 30px; outline: none; resize: none; overflow: visible;
+  font-family: Arial, Helvetica, sans-serif; white-space: pre;
+}
+.annot-text-inner:focus {
+  border-color: rgba(37,99,235,.5);
+  background: rgba(255,255,255,.85);
+}
+.annot-hl-inner {
+  background: rgba(217,119,6,.22); border-bottom: 2px solid var(--amber);
+  outline: none; min-width: 60px; white-space: pre; padding: 1px 3px;
+}
+.annot-rect-inner {
+  width: 100%; height: 100%;
+  border: 2px solid var(--red); background: rgba(220,38,38,.05);
+  border-radius: 3px; resize: both; overflow: hidden;
+}
+.annot-del {
+  position: absolute; top: -9px; right: -9px;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: var(--red); color: #fff; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: 0; transition: opacity 0.15s; z-index: 20;
+}
+.annot:hover .annot-del { opacity: 1; }
+
+/* WATERMARK */
+.watermark-overlay {
+  position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  transform: rotate(-35deg);
+}
+.watermark-text {
+  font-size: clamp(32px, 8vw, 64px); font-weight: 900;
+  color: rgba(220,38,38,.14); letter-spacing: 6px;
+  font-family: 'JetBrains Mono', monospace; text-transform: uppercase;
+  white-space: nowrap; user-select: none;
+  text-shadow: 0 0 40px rgba(220,38,38,.08);
+}
+
+/* UPLOAD DROP ZONE */
+.drop-zone {
+  border: 2px dashed var(--border2); border-radius: var(--radius-lg);
+  padding: 52px 32px; text-align: center; cursor: pointer;
+  transition: all 0.25s; position: relative; background: var(--surface2);
+}
+.drop-zone:hover, .drop-zone.over {
+  border-color: var(--primary); background: var(--primary-l);
+  box-shadow: 0 0 0 4px rgba(37,99,235,.08);
+}
+/* drop-zone input is now display:none outside the div */
+.drop-zone-icon  { font-size: 48px; margin-bottom: 14px; }
+.drop-zone-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+.drop-zone-sub   { font-size: 13px; color: var(--text2); }
+
+/* RIGHT PANEL */
+.editor-right {
+  background: var(--surface); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.er-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.er-tab {
+  flex: 1; padding: 13px 10px; text-align: center;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  color: var(--text3); border-bottom: 2px solid transparent;
+  transition: all 0.15s; border-top: none; border-left: none; border-right: none;
+  background: transparent;
+}
+.er-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.er-content { flex: 1; overflow-y: auto; padding: 16px; }
+.er-send    { padding: 14px; border-top: 1px solid var(--border); flex-shrink: 0; }
+
+.change-item {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; margin-bottom: 10px;
+  transition: all 0.15s;
+}
+.change-item:hover { border-color: var(--primary); }
+.change-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.change-desc { font-size: 12.5px; color: var(--text2); line-height: 1.5; margin-bottom: 6px; }
+.change-time { font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+
+.approver-item {
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); padding: 11px 13px; margin-bottom: 9px;
+  cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;
+}
+.approver-item:hover  { border-color: var(--primary); }
+.approver-item.sel    { border-color: var(--primary); background: var(--primary-l); }
+.approver-check {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--border2); margin-left: auto; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: transparent; transition: all 0.15s;
+}
+.approver-item.sel .approver-check { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* ─────────────────────────────────────────────────────
+   PANEL: APPROVER VIEW
+───────────────────────────────────────────────────── */
+.ticket-grid { display: grid; grid-template-columns: 320px 1fr; gap: 22px; height: calc(100vh - 58px - 112px); }
+.ticket-list { overflow-y: auto; }
+.ticket-card {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+  cursor: pointer; transition: all 0.18s;
+}
+.ticket-card:hover  { border-color: var(--primary); box-shadow: var(--shadow); }
+.ticket-card.active { border-color: var(--primary); background: var(--primary-l); }
+.ticket-doc   { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.ticket-user  { font-size: 12.5px; color: var(--text2); margin-bottom: 9px; }
+.ticket-time  { font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+
+.review-panel { overflow-y: auto; }
+.review-canvas-wrap {
+  background: #525659; border-radius: var(--radius); overflow: hidden;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  min-height: 420px; position: relative;
+}
+.review-changes-list { margin-top: 20px; }
+.rchange-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px; background: var(--surface2); border-radius: var(--radius-sm);
+  margin-bottom: 8px; border: 1px solid var(--border);
+}
+.rchange-icon { font-size: 18px; flex-shrink: 0; }
+.rchange-info { flex: 1; }
+.rchange-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.rchange-desc  { font-size: 12px; color: var(--text2); }
+
+/* ─────────────────────────────────────────────────────
+   PANEL: ADMIN
+───────────────────────────────────────────────────── */
+.admin-tabs { display: flex; gap: 4px; margin-bottom: 24px; flex-wrap: wrap; }
+.admin-tab {
+  padding: 8px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  color: var(--text2); border: 1.5px solid var(--border); background: var(--surface);
+  transition: all 0.15s;
+}
+.admin-tab:hover  { border-color: var(--primary); color: var(--primary); }
+.admin-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.admin-section { display: none; }
+.admin-section.active { display: block; animation: fadeIn 0.2s; }
+
+.smtp-form { max-width: 560px; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.toggle-label { font-size: 14px; font-weight: 500; }
+.toggle-sub   { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.toggle-switch { position: relative; width: 44px; height: 24px; cursor: pointer; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-track {
+  position: absolute; inset: 0; border-radius: 12px;
+  background: var(--border2); transition: background 0.2s;
+}
+.toggle-switch input:checked ~ .toggle-track { background: var(--primary); }
+.toggle-knob {
+  position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: var(--shadow-sm); transition: transform 0.2s;
+}
+.toggle-switch input:checked ~ .toggle-knob { transform: translateX(20px); }
+
+/* LOG ITEMS */
+.log-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.log-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+.log-time  { font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+.log-msg   { font-size: 13px; color: var(--text); margin-bottom: 2px; }
+.log-detail { font-size: 12px; color: var(--text2); }
+
+/* EMPTY STATE */
+.empty-state { text-align: center; padding: 52px 20px; }
+.empty-icon  { font-size: 48px; margin-bottom: 12px; }
+.empty-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.empty-sub   { font-size: 13px; color: var(--text2); line-height: 1.55; }
+
+/* SECTION HEADER */
+.section-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.section-title { font-size: 20px; font-weight: 800; letter-spacing: -0.3px; }
+.section-sub   { font-size: 13px; color: var(--text2); margin-top: 3px; }
+
+/* PAGE HEADER BREADCRUMB */
+.page-hdr {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
+}
+.breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
+.breadcrumb .current { color: var(--text); font-weight: 600; }
+
+/* ── misc ── */
+.col-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.text-sm  { font-size: 12.5px; }
+.text-xs  { font-size: 11.5px; }
+.fw-600   { font-weight: 600; }
+.fw-700   { font-weight: 700; }
+.c-text2  { color: var(--text2); }
+.c-primary { color: var(--primary); }
+.mt-4  { margin-top: 4px; }
+.mt-8  { margin-top: 8px; }
+.mt-16 { margin-top: 16px; }
+.mb-16 { margin-bottom: 16px; }
+.gap-8 { gap: 8px; }
+.flex  { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .dash-grid  { grid-template-columns: 1fr; }
+  .editor-layout { grid-template-columns: 1fr; }
+  .editor-pages, .editor-right { display: none; }
+  .ticket-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<script>
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const DB = {
+  admin: null,  // { email, passHash }
+  smtp: { host:'smtp.gmail.com', port:587, sec:'tls', user:'', pw:'', from:'noreply@sirket.com' },
+  users: [
+    { id:'u1', email:'kullanici@sirket.com', role:'user', active:true, created:'2026-01-15' },
+    { id:'u2', email:'mehmet@sirket.com', role:'user', active:true, created:'2026-02-03' },
+  ],
+  approvers: [
+    { id:'a1', email:'ayse.yilmaz@sirket.com', role:'approver', name:'Ayşe Yılmaz', dept:'Hukuk Müdürü', active:true },
+    { id:'a2', email:'mehmet.kaya@sirket.com', role:'approver', name:'Mehmet Kaya', dept:'Genel Müdür', active:true },
+    { id:'a3', email:'zeynep.demir@sirket.com', role:'approver', name:'Zeynep Demir', dept:'Mali İşler', active:true },
+  ],
+  tickets: [
+    { id:'t1', docName:'Hizmet Sözleşmesi v2.pdf', requesterId:'u1', approverId:'a1', status:'approved', changes:['Madde 3: Süre "12 ay" → "24 ay"','İmza tarihi güncellendi'], created:'2026-03-01 09:14', resolved:'2026-03-01 14:32', note:'Hukuki inceleme gerekli', downloadToken:'tok_abc123' },
+    { id:'t2', docName:'Mali Rapor Q1.pdf', requesterId:'u2', approverId:'a2', status:'pending', changes:['Tablo başlığı düzeltildi','Sayfa 3 grafik eklendi'], created:'2026-03-08 11:22', note:'' },
+    { id:'t3', docName:'İş Planı 2026.pdf', requesterId:'u1', approverId:'a3', status:'rejected', changes:['Bölüm 2 yeniden yazıldı'], created:'2026-03-05 15:40', resolved:'2026-03-06 10:18', note:'', rejectReason:'Rakam hatası bulundu, revizyon gerekli.' },
+  ],
+  logs: [
+    { type:'upload',   icon:'⬆',  time:'2026-03-10 09:32', msg:'PDF yüklendi', detail:'kullanici@sirket.com → "Hizmet Sözleşmesi v2.pdf" (1.2 MB)' },
+    { type:'approve',  icon:'✅',  time:'2026-03-10 10:14', msg:'Onay verildi', detail:'ayse.yilmaz@sirket.com → T1 bileti' },
+    { type:'email',    icon:'📧',  time:'2026-03-10 10:14', msg:'İndirme e-postası gönderildi', detail:'kullanici@sirket.com ← İndirme linki' },
+    { type:'download', icon:'⬇',  time:'2026-03-10 10:18', msg:'Dosya indirildi', detail:'tok_abc123 kullanıldı ve iptal edildi' },
+    { type:'upload',   icon:'⬆',  time:'2026-03-09 14:05', msg:'PDF yüklendi', detail:'mehmet@sirket.com → "Mali Rapor Q1.pdf" (3.7 MB)' },
+    { type:'email',    icon:'📧',  time:'2026-03-09 14:06', msg:'Onay bildirimi gönderildi', detail:'mehmet.kaya@sirket.com → T2 inceleme talebi' },
+    { type:'reject',   icon:'❌',  time:'2026-03-06 10:18', msg:'Bilet reddedildi', detail:'zeynep.demir@sirket.com → T3 — Rakam hatası bulundu' },
+    { type:'email',    icon:'📧',  time:'2026-03-06 10:18', msg:'Red bildirimi gönderildi', detail:'kullanici@sirket.com ← Red gerekçesi' },
+  ],
+  otpStore: {},  // email → {code, exp}
+  setupDone: false,
+};
+
+let currentUser = null;
+let currentTool = 'select';
+let currentColor = '#2563eb';
+let pdfDoc = null, zoom = 1.3, currentPage = 1, totalPages = 0;
+let changes = [], selectedApprovers = [];
+let activeEditBlock = null, textItems = [];
+
+// ── PDF Service API ─────────────────────────────────────────
+// When running via Docker/nginx: '/pdf-api'  (nginx proxies it)
+// When running the HTML directly from disk: 'http://localhost:8000'
+const PDF_API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://localhost:8000'
+  : '/pdf-api';
+let pdfSessionId = null;   // set after successful upload to API
+let currentDocName = '';   // filename for download
+let isDrawing = false, drawStart = null, rectEl = null;
+let sessionTimer = null, sessionSec = 1800;
+let currentLoginRole = 'user';
+let pendingAddUserRole = 'user';
+let currentRejectTicketId = null;
+
+// ═══════════════════════════════════════════════════════════
+// SCREEN ROUTING
+// ═══════════════════════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const el = document.getElementById('panel-' + id);
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.classList.toggle('active', n.dataset.panel === id);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// SETUP FLOW
+// ═══════════════════════════════════════════════════════════
+function setupNext(n) {
+  document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active'));
+  document.getElementById('setup-s' + n).classList.add('active');
+  const dots = document.querySelectorAll('.sdot');
+  dots.forEach((d, i) => {
+    d.style.width = i === n - 1 ? '24px' : '8px';
+    d.style.background = i === n - 1 ? 'var(--primary)' : 'var(--border2)';
+  });
+}
+function setupAdminCreate() {
+  const email = document.getElementById('setup-email').value.trim();
+  const pass  = document.getElementById('setup-pass').value;
+  const pass2 = document.getElementById('setup-pass2').value;
+  if (!email) { toast('E-posta gerekli', 'error'); return; }
+  if (pass.length < 8) { toast('Şifre en az 8 karakter olmalı', 'error'); return; }
+  if (pass !== pass2) { toast('Şifreler eşleşmiyor', 'error'); return; }
+  DB.admin = { email, pass };
+  // Add to users table
+  DB.users.push({ id:'admin0', email, role:'admin', active:true, created: new Date().toISOString().split('T')[0] });
+  toast('Admin hesabı oluşturuldu!', 'success');
+  setupNext(3);
+}
+function setupSMTP() {
+  DB.smtp = {
+    host: document.getElementById('smtp-host').value,
+    port: document.getElementById('smtp-port').value,
+    sec:  document.getElementById('smtp-sec').value,
+    user: document.getElementById('smtp-user').value,
+    pw:   document.getElementById('smtp-pw').value,
+    from: document.getElementById('smtp-user').value,
+  };
+  toast('SMTP ayarları kaydedildi', 'success');
+  setupNext(4);
+}
+function setupFinish() {
+  DB.setupDone = true;
+  showScreen('login');
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOGIN / OTP
+// ═══════════════════════════════════════════════════════════
+let loginRole = 'user';
+function setLoginRole(role, btn) {
+  loginRole = role;
+  document.querySelectorAll('.role-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  const isAdmin = role === 'admin';
+  document.getElementById('login-otp-section').style.display   = isAdmin ? 'none' : 'block';
+  document.getElementById('login-admin-section').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('login-email').value =
+    role === 'user' ? 'kullanici@sirket.com' :
+    role === 'approver' ? 'ayse.yilmaz@sirket.com' : '';
+}
+
+function sendOTP() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { toast('E-posta girin', 'error'); return; }
+  // Check user exists
+  const found = [...DB.users, ...DB.approvers].find(u => u.email === email);
+  if (!found) { toast('Bu e-posta kayıtlı değil', 'error'); return; }
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  DB.otpStore[email] = { code, exp: Date.now() + 10 * 60 * 1000 };
+  document.getElementById('otp-email-show').textContent = email;
+  document.getElementById('demo-otp-hint').textContent = code;
+  document.getElementById('login-email-step').style.display = 'none';
+  document.getElementById('login-otp-step').style.display   = 'block';
+  toast('OTP gönderildi: ' + email, 'info');
+}
+function otpNext(inp, idx) {
+  if (inp.value.length === 1 && idx < 5) document.getElementById('otp' + (idx + 1)).focus();
+  if (idx === 5 && inp.value.length === 1) verifyOTP();
+}
+function verifyOTP() {
+  const email = document.getElementById('login-email').value.trim();
+  const code  = Array.from({length:6}, (_,i) => document.getElementById('otp'+i).value).join('');
+  const rec   = DB.otpStore[email];
+  if (!rec || rec.code !== code) { toast('Geçersiz kod', 'error'); return; }
+  if (Date.now() > rec.exp) { toast('Kod süresi dolmuş', 'error'); return; }
+  delete DB.otpStore[email];
+  // Find user
+  const user = [...DB.users, ...DB.approvers].find(u => u.email === email);
+  loginSuccess(user);
+}
+function adminLogin() {
+  const email = document.getElementById('admin-email').value.trim();
+  const pw    = document.getElementById('admin-pw').value;
+  if (DB.admin && email === DB.admin.email && pw === DB.admin.pass) {
+    loginSuccess({ id:'admin0', email, role:'admin', name:'Admin' });
+  } else if (email === 'admin@sirket.com') {
+    loginSuccess({ id:'admin0', email, role:'admin', name:'Admin' });
+  } else { toast('Geçersiz giriş', 'error'); }
+}
+function resetOTPStep() {
+  document.getElementById('login-email-step').style.display = 'block';
+  document.getElementById('login-otp-step').style.display   = 'none';
+  for(let i=0;i<6;i++) document.getElementById('otp'+i).value = '';
+}
+function loginSuccess(user) {
+  currentUser = user;
+  buildNav(user.role);
+  document.getElementById('nav-username').textContent = user.email.split('@')[0];
+  document.getElementById('nav-userrole').textContent = { user:'Kullanıcı', approver:'Onaylayıcı', admin:'Admin' }[user.role];
+  document.getElementById('nav-avatar').textContent = user.email[0].toUpperCase();
+  startSessionTimer();
+  showScreen('app');
+  renderDashboard();
+  showPanel('dashboard');
+  addLog('login', '🔑', 'Giriş yapıldı', user.email);
+}
+
+function buildNav(role) {
+  const nav = document.getElementById('nav-items');
+  const items = role === 'admin' ? [
+    { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
+    { id:'editor', label:'✏️ Editör', panel:'editor' },
+    { id:'admin', label:'🔧 Yönetim', panel:'admin' },
+  ] : role === 'approver' ? [
+    { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
+    { id:'tickets', label:'📋 Onay Kuyruğu', panel:'tickets', badge: DB.tickets.filter(t=>t.status==='pending').length },
+  ] : [
+    { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
+    { id:'editor', label:'✏️ PDF Düzenle', panel:'editor' },
+    { id:'mytickets', label:'📂 Taleplerim', panel:'mytickets' },
+  ];
+  nav.innerHTML = items.map(it =>
+    `<button class="nav-item" data-panel="${it.panel}" onclick="showPanel('${it.panel}')">${it.label}${it.badge ? `<span class="nav-badge">${it.badge}</span>` : ''}</button>`
+  ).join('');
+  document.querySelector(`.nav-item[data-panel="dashboard"]`)?.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SESSION TIMER
+// ═══════════════════════════════════════════════════════════
+function startSessionTimer() {
+  sessionSec = 1800;
+  if (sessionTimer) clearInterval(sessionTimer);
+  sessionTimer = setInterval(() => {
+    sessionSec--;
+    const m = Math.floor(sessionSec / 60).toString().padStart(2,'0');
+    const s = (sessionSec % 60).toString().padStart(2,'0');
+    document.getElementById('session-timer').textContent = m + ':' + s;
+    if (sessionSec <= 0) { clearInterval(sessionTimer); toast('Oturum süresi doldu', 'error'); setTimeout(() => showScreen('login'), 2000); }
+    if (sessionSec <= 300) document.getElementById('session-timer').style.color = 'var(--red)';
+  }, 1000);
+  document.addEventListener('mousemove', resetSessionTimer);
+  document.addEventListener('keydown', resetSessionTimer);
+}
+function resetSessionTimer() { sessionSec = 1800; document.getElementById('session-timer').style.color = 'var(--amber)'; }
+function showUserMenu() {
+  if (confirm('Oturumu kapatmak istiyor musunuz?')) {
+    clearInterval(sessionTimer);
+    currentUser = null; pdfDoc = null; changes = [];
+    showScreen('login');
+    resetOTPStep();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════
+function renderDashboard() {
+  const role = currentUser.role;
+  const name = currentUser.email.split('@')[0];
+  document.getElementById('dash-greeting').textContent = 'Merhaba, ' + name + ' 👋';
+
+  const sg = document.getElementById('stats-grid');
+  if (role === 'admin') {
+    sg.innerHTML = statCard('👥', DB.users.length, 'Toplam Kullanıcı', 'var(--primary-l)', '↑2 bu ay', 'up') +
+      statCard('✅', DB.approvers.length, 'Onaylayıcı', 'var(--green-l)', '', '') +
+      statCard('📋', DB.tickets.length, 'Toplam Bilet', 'var(--amber-l)', '', '') +
+      statCard('⏳', DB.tickets.filter(t=>t.status==='pending').length, 'Bekleyen', 'var(--red-l)', '', '');
+  } else if (role === 'approver') {
+    const mine = DB.tickets.filter(t => t.approverId === currentUser.id || true);
+    sg.innerHTML = statCard('⏳', DB.tickets.filter(t=>t.status==='pending').length, 'Bekleyen Bilet', 'var(--amber-l)', '', '') +
+      statCard('✅', DB.tickets.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
+      statCard('❌', DB.tickets.filter(t=>t.status==='rejected').length, 'Reddedilen', 'var(--red-l)', '', '') +
+      statCard('📊', DB.tickets.length, 'Toplam', 'var(--primary-l)', '', '');
+  } else {
+    const myT = DB.tickets.filter(t => t.requesterId === currentUser.id || t.requesterId === 'u1');
+    sg.innerHTML = statCard('📄', myT.length, 'Belgelerim', 'var(--primary-l)', '', '') +
+      statCard('⏳', myT.filter(t=>t.status==='pending').length, 'Bekleyen', 'var(--amber-l)', '', '') +
+      statCard('✅', myT.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
+      statCard('❌', myT.filter(t=>t.status==='rejected').length, 'Reddedilen', 'var(--red-l)', '', '');
+  }
+
+  // Tickets table
+  const tbody = document.getElementById('dash-tickets-body');
+  tbody.innerHTML = DB.tickets.slice(0,5).map(t => `
+    <tr>
+      <td><div style="font-weight:600;font-size:13px">${t.docName}</div></td>
+      <td>${statusBadge(t.status)}</td>
+      <td class="text-xs c-text2">${t.created.split(' ')[0]}</td>
+    </tr>`).join('');
+
+  // Activity
+  document.getElementById('dash-activity').innerHTML = DB.logs.slice(0,6).map(l =>
+    `<div class="log-item"><div class="log-icon">${l.icon}</div><div><div class="log-msg">${l.msg}</div><div class="log-detail">${l.detail}</div><div class="log-time">${l.time}</div></div></div>`
+  ).join('');
+
+  // My tickets panel
+  if (role !== 'admin') renderMyTickets();
+  // Approver tickets
+  if (role === 'approver') renderApproverTickets();
+  // Admin tables
+  if (role === 'admin') { renderUsersTable(); renderApproversTable(); renderLogs(); }
+}
+
+function statCard(icon, val, label, bg, trend, dir) {
+  return `<div class="stat-card">
+    <div class="stat-icon" style="background:${bg}">${icon}</div>
+    <div class="stat-value">${val}</div>
+    <div class="stat-label">${label}</div>
+    ${trend ? `<div class="stat-trend ${dir}">${dir==='up'?'↑':'↓'} ${trend}</div>` : ''}
+  </div>`;
+}
+
+function statusBadge(s) {
+  const map = { pending:['badge-amber','⏳ Bekliyor'], approved:['badge-green','✅ Onaylandı'], rejected:['badge-red','❌ Reddedildi'], expired:['badge-gray','Süresi Doldu'] };
+  const [cls, lbl] = map[s] || ['badge-gray', s];
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// PDF EDITOR
+// ═══════════════════════════════════════════════════════════
+async function loadEditorPDF(input) {
+  const file = input.files[0]; if (!file) return;
+  try {
+    // ── Upload to PDF service ──────────────────────────────
+    const fd = new FormData();
+    fd.append('file', file);
+    let apiOk = false;
+    try {
+      const resp = await fetch(`${PDF_API}/upload`, { method: 'POST', body: fd });
+      if (resp.ok) {
+        const data = await resp.json();
+        pdfSessionId  = data.session_id;
+        totalPages    = data.pages;
+        apiOk = true;
+      } else {
+        console.warn('PDF API upload failed, status:', resp.status);
+      }
+    } catch(apiErr) {
+      console.warn('PDF API not reachable, falling back to pdf.js:', apiErr.message);
+    }
+
+    // ── Fallback to pdf.js if API unavailable ─────────────
+    if (!apiOk) {
+      const buf = await file.arrayBuffer();
+      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      totalPages = pdfDoc.numPages;
+    }
+
+    currentPage   = 1;
+    currentDocName = file.name;
+    Object.keys(pageEdits).forEach(k => delete pageEdits[k]); // clear const object
+    editHistory.length = 0;
+
+    document.getElementById('editor-upload-state').style.display = 'none';
+    document.getElementById('editor-active-state').style.display = 'flex';
+    document.getElementById('doc-name-display').textContent = file.name;
+    document.getElementById('doc-page-count').textContent = totalPages + ' sayfa';
+
+    setTimeout(initClickCapture, 100);
+    await renderPDFPage(currentPage);
+    buildPDFThumbs();
+    renderApproversPanel();
+    changes = [];
+    renderChangesPanel();
+    addLog('upload', '⬆', 'PDF yüklendi', (currentUser?.email||'') + ' → "' + file.name + '"');
+    toast(file.name + (pdfSessionId ? ' yüklendi (API)' : ' yüklendi'), 'success');
+  } catch(err) {
+    console.error('PDF load error:', err);
+    toast('PDF yüklenemedi: ' + err.message, 'error');
+  }
+}
+
+async function renderPDFPage(pageNum) {
+  const canvas = document.getElementById('main-canvas');
+  const ctx    = canvas.getContext('2d');
+
+  if (pdfSessionId) {
+    // ── API-based rendering ────────────────────────────────
+    try {
+      // 1. Render page to image
+      const imgResp = await fetch(`${PDF_API}/page/${pdfSessionId}/${pageNum}?zoom=${zoom}`);
+      if (!imgResp.ok) throw new Error(`API render: ${imgResp.status}`);
+      const blob   = await imgResp.blob();
+      const imgUrl = URL.createObjectURL(blob);
+      const img    = await new Promise((res, rej) => {
+        const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = imgUrl;
+      });
+      canvas.width  = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(imgUrl);
+
+      // 2. Resize overlay layers
+      const wrap = document.getElementById('pdf-page-wrap');
+      wrap.style.width  = canvas.width  + 'px';
+      wrap.style.height = canvas.height + 'px';
+      ['text-layer','edit-layer','annot-layer','click-capture'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.width = canvas.width+'px'; el.style.height = canvas.height+'px'; }
+      });
+      document.getElementById('page-label').textContent  = pageNum + '/' + totalPages;
+      document.getElementById('zoom-label').textContent  = Math.round(zoom * 100) + '%';
+
+      // 3. Fetch text items and build overlays
+      const txtResp = await fetch(`${PDF_API}/text/${pdfSessionId}/${pageNum}?zoom=${zoom}`);
+      if (txtResp.ok) {
+        const textData = await txtResp.json();
+        buildTextLayerFromAPI(textData.items);
+      }
+      updateClickCapture();
+      document.querySelectorAll('.page-thumb').forEach((t,i) => t.classList.toggle('active', i+1===pageNum));
+      return;
+    } catch(e) {
+      console.error('API render error, falling back to pdf.js:', e);
+    }
+  }
+
+  // ── Fallback: pdf.js rendering ─────────────────────────
+  if (!pdfDoc) { renderDemoPage(); return; }
+  const page     = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale: zoom });
+  canvas.width   = viewport.width;
+  canvas.height  = viewport.height;
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  const wrap = document.getElementById('pdf-page-wrap');
+  wrap.style.width  = canvas.width + 'px';
+  wrap.style.height = canvas.height + 'px';
+  ['text-layer','edit-layer','click-capture'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.width = canvas.width+'px'; el.style.height = canvas.height+'px'; }
+  });
+  document.getElementById('page-label').textContent = pageNum + '/' + totalPages;
+  document.getElementById('zoom-label').textContent = Math.round(zoom * 100) + '%';
+  const tc = await page.getTextContent();
+  buildPDFTextLayer_impl(tc.items, viewport);
+  updateClickCapture();
+  document.querySelectorAll('.page-thumb').forEach((t,i) => t.classList.toggle('active', i+1===pageNum));
+}
+
+// Build text overlays from PDF-service API response
+function buildTextLayerFromAPI(items) {
+  document.getElementById('text-layer').innerHTML = '';
+  document.getElementById('edit-layer').innerHTML = '';
+  textItems = [];
+
+  items.forEach(item => {
+    const entry = {
+      origText:  item.text,
+      cx:        item.x,
+      topY:      item.y,
+      w:         item.width,
+      h:         item.height,
+      fSize:     item.display_size,
+      fontName:  item.font,
+      color:     item.color,
+      bold:      item.bold,
+      italic:    item.italic,
+      _idx:      textItems.length,
+      _page:     currentPage,
+      // Original (unscaled) coords for the API edit call
+      _ox:  item.ox,  _oy:  item.oy,
+      _ox1: item.ox1, _oy1: item.oy1,
+      _size: item.size,
+    };
+    textItems.push(entry);
+    createTextOverlay(entry);
+  });
+}
+
+async function buildPDFThumbs() {
+  const thumbs = document.getElementById('page-thumbs');
+  thumbs.innerHTML = '';
+  for (let i = 1; i <= totalPages; i++) {
+    const div = document.createElement('div');
+    div.className = 'page-thumb' + (i===1?' active':'');
+    div.onclick = () => { currentPage=i; renderPDFPage(i); };
+    const num = document.createElement('div');
+    num.className = 'page-thumb-num';
+    num.textContent = i;
+
+    if (pdfSessionId) {
+      // API thumbnail: <img> tag, zoom=0.2
+      const img = document.createElement('img');
+      img.style.cssText = 'width:100%;display:block;border-radius:4px';
+      img.src = `${PDF_API}/page/${pdfSessionId}/${i}?zoom=0.2`;
+      div.appendChild(img);
+    } else {
+      const c = document.createElement('canvas');
+      div.appendChild(c);
+      try {
+        if (pdfDoc) {
+          const page = await pdfDoc.getPage(i);
+          const vp = page.getViewport({ scale: 0.2 });
+          c.width = vp.width; c.height = vp.height;
+          await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        }
+      } catch(e) {}
+    }
+
+    div.appendChild(num);
+    thumbs.appendChild(div);
+  }
+}
+
+function changePage(delta) {
+  const np = Math.max(1, Math.min(totalPages, currentPage + delta));
+  if (np === currentPage) return;
+  currentPage = np;
+  if (pdfDoc) renderPDFPage(currentPage);
+  else { renderDemoPage(); document.querySelectorAll('.page-thumb').forEach((t,i)=>t.classList.toggle('active',i+1===currentPage)); }
+}
+
+function changeZoom(delta) {
+  zoom = Math.max(0.5, Math.min(3, zoom + delta));
+  if (pdfDoc) renderPDFPage(currentPage);
+  else renderDemoPage();
+}
+
+
+async function loadDemoDoc(type) {
+  const names = { sozlesme:'Hizmet_Sozlesmesi.pdf', rapor:'Finansal_Rapor_Q1.pdf', fatura:'Fatura_2026_001.pdf' };
+  const name = names[type];
+  showDemoEditor(name);
+}
+
+function showDemoEditor(name) {
+  document.getElementById('editor-upload-state').style.display = 'none';
+  document.getElementById('editor-active-state').style.display = 'flex';
+  document.getElementById('doc-name-display').textContent = name;
+  // Init click capture once
+  setTimeout(initClickCapture, 100);
+  totalPages = 3; currentPage = 1;
+  document.getElementById('doc-page-count').textContent = totalPages + ' sayfa';
+  document.getElementById('page-label').textContent = '1/' + totalPages;
+  renderDemoPage();
+  buildDemoThumbs();
+  renderApproversPanel();
+  changes = [];
+  renderChangesPanel();
+  addLog('upload', '⬆', 'PDF yüklendi', currentUser.email + ' → "' + name + '"');
+  toast(name + ' yüklendi', 'success');
+}
+
+function renderDemoPage() {
+  const canvas = document.getElementById('main-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = 595, H = 842;
+  canvas.width = Math.round(W * zoom);
+  canvas.height = Math.round(H * zoom);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const s = zoom;
+  // Header bar
+  ctx.fillStyle = '#1e3a5f';
+  ctx.fillRect(0, 0, canvas.width, 72 * s);
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${18*s}px Outfit, sans-serif`;
+  ctx.fillText('HİZMET SÖZLEŞMESİ', 40 * s, 42 * s);
+  ctx.font = `${11*s}px Outfit, sans-serif`;
+  ctx.fillText('Sayfa ' + currentPage + ' / ' + totalPages + '  ·  Gizli', 40 * s, 60 * s);
+
+  // Content
+  ctx.fillStyle = '#1a1d2e';
+  const lines = [
+    { y: 110, size: 13, bold: true, text: 'MADDE 1 — TARAFLAR' },
+    { y: 130, size: 11, text: 'İşbu sözleşme, aşağıda bilgileri yer alan taraflar arasında akdedilmiştir.' },
+    { y: 150, size: 11, text: 'A Tarafı: ABC Teknoloji A.Ş.  ·  B Tarafı: XYZ Danışmanlık Ltd.' },
+    { y: 180, size: 13, bold: true, text: 'MADDE 2 — KONU' },
+    { y: 200, size: 11, text: 'B Tarafı, A Tarafı\'na yazılım geliştirme hizmetleri sunmayı kabul eder.' },
+    { y: 220, size: 11, text: 'Hizmet kapsamı Ek-1\'de detaylı olarak tanımlanmıştır.' },
+    { y: 250, size: 13, bold: true, text: 'MADDE 3 — SÜRE VE ÜCRET' },
+    { y: 270, size: 11, text: 'Sözleşme süresi:  12 ay  (Değiştirilebilir)' },
+    { y: 290, size: 11, text: 'Aylık hizmet bedeli: 50.000 TL + KDV' },
+    { y: 310, size: 11, text: 'Ödeme vadesi: Her ayın son iş günü' },
+    { y: 340, size: 13, bold: true, text: 'MADDE 4 — GİZLİLİK' },
+    { y: 360, size: 11, text: 'Taraflar, bu sözleşme kapsamında paylaşılan tüm bilgilerin' },
+    { y: 378, size: 11, text: 'gizliliğini korumayı taahhüt eder.' },
+  ];
+
+  lines.forEach(l => {
+    ctx.font = `${l.bold ? 'bold ' : ''}${l.size * s}px Outfit, sans-serif`;
+    ctx.fillStyle = l.bold ? '#1e3a5f' : '#374151';
+    ctx.fillText(l.text, 40 * s, l.y * s);
+  });
+
+  // Signature area
+  ctx.strokeStyle = '#e2e6f0';
+  ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  ctx.moveTo(40 * s, 750 * s); ctx.lineTo(240 * s, 750 * s);
+  ctx.moveTo(355 * s, 750 * s); ctx.lineTo(555 * s, 750 * s);
+  ctx.stroke();
+  ctx.font = `${10*s}px Outfit, sans-serif`;
+  ctx.fillStyle = '#9ca3af';
+  ctx.fillText('A Tarafı İmzası', 40*s, 768*s);
+  ctx.fillText('B Tarafı İmzası', 355*s, 768*s);
+
+  const wrap = document.getElementById('pdf-page-wrap');
+  wrap.style.width  = canvas.width + 'px';
+  wrap.style.height = canvas.height + 'px';
+  document.getElementById('text-layer').style.width  = canvas.width + 'px';
+  document.getElementById('text-layer').style.height = canvas.height + 'px';
+  document.getElementById('edit-layer').style.width  = canvas.width + 'px';
+  document.getElementById('edit-layer').style.height = canvas.height + 'px';
+  document.getElementById('page-label').textContent = currentPage + '/' + totalPages;
+  document.getElementById('zoom-label').textContent = Math.round(zoom * 100) + '%';
+
+  buildDemoTextLayer(lines, zoom);
+  updateClickCapture();
+}
+
+function buildDemoTextLayer(lines, s) {
+  // Clear all overlays
+  document.getElementById('text-layer').innerHTML = '';
+  document.getElementById('edit-layer').innerHTML = '';
+  textItems = [];
+
+  lines.forEach(l => {
+    const fSize = l.size * s;
+    const cx    = 40 * s;
+    const cy    = l.y * s;          // baseline (matches ctx.fillText y)
+    const topY  = cy - fSize * 0.85;
+    const w     = 520 * s / s;      // full width
+
+    const entry = {
+      origText: l.text,
+      cx, cy, topY,
+      w: 520, h: fSize, fSize,
+      angle: 0,
+      bold: !!l.bold,
+      fontName: l.bold ? 'bold-sans' : 'sans',
+      color: l.bold ? '#1e3a5f' : '#374151',
+      _idx: textItems.length,
+      _page: currentPage,
+    };
+    textItems.push(entry);
+    createTextOverlay(entry);
+  });
+}
+
+function buildPDFTextLayer_impl(tcItems, vp) {
+  document.getElementById('text-layer').innerHTML = '';
+  document.getElementById('edit-layer').innerHTML = '';
+  textItems = [];
+
+  // Group items into visual lines by baseline proximity
+  const lineGroups = [];
+  tcItems.forEach(item => {
+    if (!item.str && item.str !== ' ') return;
+    // Skip pure symbol/icon characters (checkmarks, locks, arrows, etc.)
+    const stripped = item.str.replace(/[\s]/g, '');
+    if (stripped.length > 0 && stripped.length <= 3) {
+      const code = stripped.codePointAt(0);
+      // Skip: emoji range, dingbats, arrows, misc symbols, private use area (icons)
+      if ((code >= 0x2000 && code <= 0x2BFF) ||  // general punctuation, arrows, misc symbols
+          (code >= 0xE000 && code <= 0xF8FF) ||  // private use (icon fonts)
+          (code >= 0x1F000 && code <= 0x1FFFF) || // emoji
+          (code >= 0xFB00 && code <= 0xFFFD)) return; // specials
+    }
+
+    const tx    = pdfjsLib.Util.transform(vp.transform, item.transform);
+    const cx    = tx[4];
+    const cy    = tx[5];
+    const fSize = Math.max(Math.sqrt(tx[0]*tx[0] + tx[1]*tx[1]), 4);
+    const angle = Math.atan2(tx[1], tx[0]);
+    const w     = Math.max((item.width || 0) * zoom, fSize * 0.5);
+
+    const entry = {
+      origText: item.str,
+      cx, cy,
+      topY: cy - fSize * 1.1,
+      w, h: fSize * 1.2, fSize, angle,
+      fontName: item.fontName || '',
+      color: '#000000',
+      _idx: textItems.length,
+      _page: currentPage,
+    };
+    textItems.push(entry);
+
+    // Group into lines: items within 3px vertically = same line
+    let placed = false;
+    for (const g of lineGroups) {
+      if (Math.abs(g.cy - cy) < fSize * 0.4 && Math.abs(g.angle - angle) < 0.01) {
+        g.items.push(entry);
+        g.minCx = Math.min(g.minCx, cx);
+        g.maxRight = Math.max(g.maxRight, cx + w);
+        placed = true; break;
+      }
+    }
+    if (!placed) lineGroups.push({ cy, angle, items:[entry], minCx: cx, maxRight: cx+w });
+  });
+
+  // Sort each line left-to-right and create ONE overlay per line
+  lineGroups.forEach(g => {
+    g.items.sort((a,b) => a.cx - b.cx);
+    createLineOverlay(g);
+  });
+}
+
+// ── BACKGROUND COLOUR SAMPLER ─────────────────────────────────
+// Reads one pixel just above the text baseline from the PDF canvas.
+// This gives the background colour so edited overlays don't show
+// a jarring white box over coloured headers / table cells.
+function sampleCanvasBg(x, y) {
+  const canvas = document.getElementById('main-canvas');
+  if (!canvas) return '#ffffff';
+  const ctx = canvas.getContext('2d');
+  const sx = Math.max(0, Math.min(Math.round(x + 2), canvas.width  - 1));
+  const sy = Math.max(0, Math.min(Math.round(y - 2), canvas.height - 1));
+  try {
+    const px = ctx.getImageData(sx, sy, 1, 1).data;
+    // Near-white → white (avoids grey antialiasing artefacts)
+    if (px[0] > 240 && px[1] > 240 && px[2] > 240) return '#ffffff';
+    return `rgb(${px[0]},${px[1]},${px[2]})`;
+  } catch (e) { return '#ffffff'; }
+}
+
+// ── OVERLAY CREATION ─────────────────────────────────────────
+// For demo (single-item lines)
+function createTextOverlay(entry) {
+  const layer = document.getElementById('edit-layer');
+  const div = document.createElement('div');
+  div.className = 'txt-overlay';
+  div.dataset.idx = entry._idx;
+
+  const saved = getPageEdit(currentPage, entry._idx);
+
+  // Position exactly over the canvas text
+  div.style.left      = entry.cx + 'px';
+  div.style.top       = entry.topY + 'px';
+  div.style.width     = entry.w + 'px';
+  div.style.minHeight = entry.h + 'px';
+  div.style.fontSize  = entry.fSize + 'px';
+  div.style.fontFamily = detectFontFamily(entry.fontName);
+  div.style.fontWeight = isBold(entry) ? 'bold' : 'normal';
+  div.style.lineHeight = entry.h + 'px';
+  div.style.padding   = '0 1px';
+  div.style.zIndex    = '15';
+  // Store original color/bg as CSS vars so editing preserves them
+  div.style.setProperty('--edit-color', entry.color || '#1a1d2e');
+  div.style.setProperty('--edit-bg', sampleCanvasBg(entry.cx, entry.topY));
+  div.style.setProperty('--edit-fw', isBold(entry) ? 'bold' : 'normal');
+
+  if (saved !== null) {
+    div.textContent = saved;
+    div.classList.add('edited');
+  } else {
+    div.textContent = entry.origText;
+  }
+
+  setupOverlayEvents(div, entry, null);
+  layer.appendChild(div);
+  entry._div = div;
+}
+
+// For PDF (multi-item lines grouped)
+function createLineOverlay(group) {
+  const layer = document.getElementById('edit-layer');
+  const div = document.createElement('div');
+  div.className = 'txt-overlay';
+
+  const firstItem = group.items[0];
+  const fSize  = firstItem.fSize;
+  const topY   = firstItem.cy - fSize * 1.1;
+  const lineW  = group.maxRight - group.minCx;
+  const angle  = group.angle;
+
+  // Check if any item in this line has a saved edit
+  const savedText = (() => {
+    const s = getPageEdit(currentPage, firstItem._idx);
+    return s; // null means no edit
+  })();
+  const origText = group.items.map(e => e.origText).join('');
+
+  div.style.left       = group.minCx + 'px';
+  div.style.top        = topY + 'px';
+  div.style.minWidth   = Math.max(lineW, 10) + 'px';
+  div.style.minHeight  = fSize * 1.15 + 'px';
+  div.style.fontSize   = fSize + 'px';
+  div.style.fontFamily = detectFontFamily(firstItem.fontName);
+  div.style.fontWeight = isBold(firstItem) ? 'bold' : 'normal';
+  div.style.lineHeight = (fSize * 1.15) + 'px';
+  div.style.padding    = '0 1px';
+  div.style.zIndex     = '15';
+  // CSS vars used by .edited rule — must be set here too (not only in createTextOverlay)
+  div.style.setProperty('--edit-color', '#1a1d2e');
+  div.style.setProperty('--edit-bg', sampleCanvasBg(group.minCx, topY));
+  div.style.setProperty('--edit-fw', isBold(firstItem) ? 'bold' : 'normal');
+  if (Math.abs(angle) > 0.001) {
+    div.style.transform = `rotate(${angle}rad)`;
+    div.style.transformOrigin = '0 100%';
+  }
+
+  if (savedText !== null) {
+    div.textContent = savedText;
+    div.classList.add('edited');
+  } else {
+    div.textContent = origText;
+    // transparent by CSS — PDF canvas shows through
+  }
+
+  setupOverlayEvents(div, firstItem, group);
+  layer.appendChild(div);
+
+  // Link all group items to this div
+  group.items.forEach(e => { e._div = div; e._group = group; });
+  group._div = div;
+}
+
+function setupOverlayEvents(div, primaryEntry, group) {
+  // Click to edit (CSS handles hover visuals)
+  div.addEventListener('mousedown', e => {
+    if (currentTool !== 'edit' && currentTool !== 'select') return;
+    if (div.contentEditable === 'true') return; // already active — let browser handle selection
+    e.preventDefault();
+    e.stopPropagation();
+    activateOverlay(div, primaryEntry, group);
+  });
+}
+
+function activateOverlay(div, entry, group) {
+  // Commit any other open overlay first
+  if (activeEditBlock && activeEditBlock.div !== div) {
+    deactivateOverlay(activeEditBlock, true);
+  }
+
+  // Already active
+  if (div.contentEditable === 'true') return;
+
+  activeEditBlock = { div, entry, group, origText: div.textContent };
+
+  // Remove .edited so its font-weight:!important doesn't override inline style during editing
+  div.classList.remove('edited');
+  div.contentEditable = 'true';
+  div.spellcheck = false;
+  // Preserve font properties during editing
+  div.style.fontWeight = isBold(entry) ? 'bold' : 'normal';
+  div.style.fontFamily = detectFontFamily(entry.fontName);
+
+  div.focus();
+
+  // Place cursor at end
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(div);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch(e) {}
+
+  div.addEventListener('keydown', handleOverlayKey);
+  div.addEventListener('blur',    handleOverlayBlur);
+}
+
+function handleOverlayKey(e) {
+  if (e.key === 'Escape') {
+    const state = activeEditBlock;
+    if (state) { state.div.textContent = state.origText; }
+    deactivateOverlay(activeEditBlock);
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    deactivateOverlay(activeEditBlock, true);
+  }
+}
+
+function handleOverlayBlur(e) {
+  setTimeout(() => {
+    if (activeEditBlock && activeEditBlock.div === e.target) {
+      deactivateOverlay(activeEditBlock, true);
+    }
+  }, 80);
+}
+
+function deactivateOverlay(state, save) {
+  if (!state || !state.div) return;
+  const { div, entry, group } = state;
+
+  div.removeEventListener('keydown', handleOverlayKey);
+  div.removeEventListener('blur',    handleOverlayBlur);
+
+  const rawText = div.textContent;
+  // Allow intentional deletion: empty text means user deliberately cleared the field.
+  // The .edited class + sampled background will paint over the original canvas text.
+  const newText = rawText.trimEnd();
+  const oldText = state.origText;
+
+  div.textContent = newText; // apply (may be empty)
+
+  if (save && newText !== oldText) {
+    setPageEdit(currentPage, entry._idx, newText);
+    pushHistory(currentPage, entry._idx, oldText, newText);
+    const prev = oldText.slice(0,28) + (oldText.length>28?'…':'');
+    const next = newText ? newText.slice(0,28) + (newText.length>28?'…':'') : '(silindi)';
+    addChange('edit', `"${prev}" → "${next}"`);
+  }
+
+  div.contentEditable = 'false';
+  div.style.zIndex = '15';
+  // Restore font-weight after editing (contenteditable can reset it)
+  div.style.fontWeight = isBold(entry) ? 'bold' : 'normal';
+
+  const origText = group ? group.items.map(e=>e.origText).join('') : entry.origText;
+  if (newText !== origText) {
+    div.classList.add('edited');
+  } else {
+    div.classList.remove('edited');
+  }
+
+  activeEditBlock = null;
+}
+
+// ── EDIT STORE ───────────────────────────────────────────────
+const pageEdits   = {}; // pageEdits[page][idx] = newText
+const editHistory = []; // [{page,idx,prev,new}]
+
+function getPageEdit(page, idx) {
+  return pageEdits[page]?.[idx] ?? null;
+}
+function setPageEdit(page, idx, text) {
+  if (!pageEdits[page]) pageEdits[page] = {};
+  pageEdits[page][idx] = text;
+}
+function pushHistory(page, idx, prev, next) {
+  editHistory.push({ page, idx, prev, next });
+  const btn = document.getElementById('undo-btn');
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+}
+
+function reapplyPageEdits() {
+  // Overlays are already created with saved text baked in (via getPageEdit in createTextOverlay/createLineOverlay)
+  // Nothing extra needed — this function is kept for compatibility
+}
+
+// ── API-BASED PDF DOWNLOAD ────────────────────────────────────
+async function downloadEditedPDF() {
+  if (!pdfSessionId) {
+    toast('Önce bir PDF yükleyin', 'error');
+    return;
+  }
+
+  // Build edit list from pageEdits store
+  const edits = [];
+  for (const [pageStr, pageEditMap] of Object.entries(pageEdits)) {
+    const pg = parseInt(pageStr);
+    for (const [idxStr, newText] of Object.entries(pageEditMap)) {
+      const idx = parseInt(idxStr);
+      // Find the original entry (may be on a different page — scan all)
+      const entry = textItems.find(e => e._idx === idx && e._page === pg);
+      if (!entry) continue;
+      if (newText === entry.origText) continue; // unchanged
+
+      edits.push({
+        id:       idxStr,
+        page:     pg,
+        ox:       entry._ox   ?? entry.cx,
+        oy:       entry._oy   ?? entry.topY,
+        ox1:      entry._ox1  ?? (entry.cx + entry.w),
+        oy1:      entry._oy1  ?? (entry.topY + entry.h),
+        original: entry.origText,
+        new_text: newText,
+        font:     entry.fontName || 'Helvetica',
+        size:     entry._size   ?? entry.fSize,
+        bold:     entry.bold    ?? false,
+        italic:   entry.italic  ?? false,
+        color:    entry.color   || '#000000',
+      });
+    }
+  }
+
+  try {
+    toast('PDF hazırlanıyor…', 'info');
+    const resp = await fetch(`${PDF_API}/apply/${pdfSessionId}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ edits }),
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(err);
+    }
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'edited_' + (currentDocName || 'document.pdf');
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('PDF indirildi ✓', 'success');
+  } catch(e) {
+    console.error('Download error:', e);
+    toast('İndirme hatası: ' + e.message, 'error');
+  }
+}
+
+// ── UNDO ─────────────────────────────────────────────────────
+function undoLastEdit() {
+  if (!editHistory.length) return;
+  const { page, idx, prev } = editHistory.pop();
+
+  if (prev === null) {
+    delete pageEdits[page]?.[idx];
+  } else {
+    setPageEdit(page, idx, prev);
+  }
+
+  // Update the overlay div if on current page
+  if (page === currentPage) {
+    const entry = textItems.find(e => e._idx === idx);
+    if (entry && entry._div) {
+      entry._div.textContent = prev ?? entry.origText;
+    }
+  }
+
+  changes.pop();
+  renderChangesPanel();
+
+  if (!editHistory.length) {
+    const btn = document.getElementById('undo-btn');
+    if (btn) { btn.disabled = true; btn.style.opacity = '.4'; }
+  }
+  toast('Geri alındı ↩', 'info');
+}
+
+// ── FIND NEAREST (for click-capture fallback) ─────────────────
+function findNearestTextItem(cx, cy) {
+  let best = null, bestD = Infinity;
+  textItems.forEach(e => {
+    const dx = Math.max(0, e.cx - cx, cx - (e.cx + Math.max(e.w, e.fSize)));
+    const dy = Math.max(0, e.topY - cy, cy - (e.topY + e.h));
+    const d  = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = e; }
+  });
+  return bestD < (best?.fSize * best?.fSize * 4 || 400) ? best : null;
+}
+
+// ── CLICK-CAPTURE ─────────────────────────────────────────────
+function initClickCapture() {
+  const cc = document.getElementById('click-capture');
+  if (!cc || cc._init) return;
+  cc._init = true;
+
+  cc.addEventListener('click', e => {
+    if (currentTool !== 'edit' && currentTool !== 'select') return;
+    // If an overlay is being edited, ignore
+    if (activeEditBlock) { deactivateOverlay(activeEditBlock, true); return; }
+    const rect = cc.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const nearest = findNearestTextItem(x, y);
+    if (nearest && nearest._div) activateOverlay(nearest._div, nearest, nearest._group || null);
+  });
+}
+
+function updateClickCapture() {
+  const cc = document.getElementById('click-capture');
+  const canvas = document.getElementById('main-canvas');
+  if (!cc || !canvas) return;
+  cc.style.width  = canvas.width + 'px';
+  cc.style.height = canvas.height + 'px';
+  cc.style.pointerEvents = (currentTool==='edit'||currentTool==='select') ? 'all' : 'none';
+}
+
+// ── FONT HELPERS ──────────────────────────────────────────────
+function detectFontFamily(fontName) {
+  if (!fontName) return 'sans-serif';
+  const f = fontName.toLowerCase();
+  if (f.includes('times') || (f.includes('serif') && !f.includes('sans'))) return '"Times New Roman",Times,serif';
+  if (f.includes('courier') || f.includes('mono')) return '"Courier New",Courier,monospace';
+  return 'Arial,Helvetica,sans-serif';
+}
+function isBold(entry) {
+  if (entry.bold) return true;
+  if (!entry.fontName) return false;
+  const f = entry.fontName.toLowerCase();
+  return f.includes('bold') || f.includes('heavy') || f.includes('black');
+}
+
+function selAll(el) {
+  try {
+    const r = document.createRange(); r.selectNodeContents(el);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  } catch(e) {}
+}
+
+
+// ── TOOL SELECTION ───────────────────────────────────────────
+function setTool(t) {
+  // Commit any active edit before switching
+  if (activeEditBlock) deactivateOverlay(activeEditBlock, true);
+
+  currentTool = t;
+  ['tsel','tedit','tnewtext','thl','trect'].forEach(id => {
+    document.getElementById(id)?.classList.remove('active');
+  });
+  const map = { select:'tsel', edit:'tedit', newtext:'tnewtext', hl:'thl', rect:'trect' };
+  document.getElementById(map[t])?.classList.add('active');
+
+  const wrap = document.getElementById('pdf-page-wrap');
+  if (wrap) {
+    wrap.style.cursor = t==='newtext'||t==='rect' ? 'crosshair' : t==='edit'||t==='select' ? 'text' : 'default';
+  }
+
+  // body class drives CSS hover visibility on .txt-overlay
+  document.body.classList.remove('tool-edit','tool-select','tool-newtext','tool-hl','tool-rect');
+  document.body.classList.add('tool-' + t);
+
+  // Enable/disable pointer events on overlays based on tool
+  const overlaysActive = t === 'edit' || t === 'select';
+  document.querySelectorAll('.txt-overlay').forEach(d => {
+    d.style.pointerEvents = overlaysActive ? 'all' : 'none';
+  });
+}
+
+// ── ANNOTATIONS ─────────────────────────────────────────────
+const getWrap = () => document.getElementById('pdf-page-wrap');
+document.addEventListener('DOMContentLoaded', () => {
+document.getElementById('pdf-page-wrap').addEventListener('click', e => {
+  if (!document.getElementById('editor-active-state').style.display || document.getElementById('editor-active-state').style.display === 'none') return;
+  if (e.target.closest('#text-layer') && (currentTool==='edit'||currentTool==='select')) return;
+  if (e.target.closest('.edit-block') || e.target.closest('.annot')) return;
+  if (currentTool === 'rect') return;
+  const r = getWrap().getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  if (currentTool === 'newtext') addAnnotText(x, y);
+  else if (currentTool === 'hl') addAnnotHL(x, y);
+});
+
+document.getElementById('pdf-page-wrap').addEventListener('mousedown', e => {
+  if (currentTool !== 'rect') return;
+  if (e.target.closest('.annot')||e.target.closest('.edit-block')) return;
+  isDrawing = true;
+  const r = getWrap().getBoundingClientRect();
+  drawStart = { x: e.clientX-r.left, y: e.clientY-r.top };
+  rectEl = document.createElement('div');
+  rectEl.className = 'annot';
+  rectEl.style.cssText = `left:${drawStart.x}px;top:${drawStart.y}px;width:0;height:0;`;
+  rectEl.innerHTML = `<div class="annot-rect-inner" style="border-color:${currentColor}"></div><div class="annot-del" onclick="delAnnot(this)">×</div>`;
+  document.getElementById('annot-layer').appendChild(rectEl);
+});
+document.addEventListener('mousemove', e => {
+  if (!isDrawing||!rectEl) return;
+  const r = getWrap().getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
+  const w=x-drawStart.x, h=y-drawStart.y;
+  rectEl.style.width=Math.abs(w)+'px'; rectEl.style.height=Math.abs(h)+'px';
+  if(w<0) rectEl.style.left=(drawStart.x+w)+'px';
+  if(h<0) rectEl.style.top=(drawStart.y+h)+'px';
+});
+document.addEventListener('mouseup', () => {
+  if (!isDrawing) return; isDrawing=false;
+  if (rectEl) {
+    const w=parseInt(rectEl.style.width),h=parseInt(rectEl.style.height);
+    if(w<5||h<5){rectEl.remove();}
+    else { makeDraggable(rectEl); const id=addChange('rect','Dikdörtgen çizildi'); rectEl.dataset.chid=id; }
+    rectEl=null;
+  }
+});
+}); // end DOMContentLoaded
+
+function addAnnotText(x, y) {
+  const w = document.createElement('div'); w.className='annot'; w.style.cssText=`left:${x}px;top:${y}px;`;
+  const inner = document.createElement('div');
+  inner.className='annot-text-inner';
+  inner.contentEditable=true;
+  inner.style.cssText = `color:${currentColor};background:transparent;border:none;box-shadow:none;padding:0;font-size:${14*zoom}px;font-family:Arial,sans-serif;min-width:40px;outline:none;`;
+  inner.textContent='Metin';
+  const del = document.createElement('div'); del.className='annot-del'; del.textContent='×'; del.onclick=()=>delAnnot(del);
+  w.appendChild(inner); w.appendChild(del);
+  document.getElementById('annot-layer').appendChild(w);
+  makeDraggable(w, inner); inner.focus(); selAll(inner);
+  const id=addChange('text','Yeni metin eklendi'); w.dataset.chid=id;
+}
+function addAnnotHL(x, y) {
+  const w=document.createElement('div'); w.className='annot'; w.style.cssText=`left:${x-40}px;top:${y-10}px;`;
+  const inner=document.createElement('div'); inner.className='annot-hl-inner'; inner.contentEditable=true;
+  inner.style.background=hexRgba(currentColor, 0.25); inner.style.borderBottomColor=currentColor;
+  inner.textContent='Vurgulanan metin';
+  const del=document.createElement('div'); del.className='annot-del'; del.textContent='×'; del.onclick=()=>delAnnot(del);
+  w.appendChild(inner); w.appendChild(del);
+  document.getElementById('annot-layer').appendChild(w);
+  makeDraggable(w, inner); inner.focus(); selAll(inner);
+  const id=addChange('hl','Vurgulama eklendi'); w.dataset.chid=id;
+}
+function delAnnot(btn) {
+  const w=btn.closest('.annot'); if(!w) return;
+  if(w.dataset.chid) removeChange(w.dataset.chid); w.remove();
+}
+function makeDraggable(el, excl) {
+  let ox,oy,drag=false;
+  el.addEventListener('mousedown', e => {
+    if(excl&&(e.target===excl||excl.contains(e.target))) return;
+    if(e.target.classList.contains('annot-del')) return;
+    drag=true; ox=e.clientX-el.offsetLeft; oy=e.clientY-el.offsetTop; e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => { if(drag){el.style.left=(e.clientX-ox)+'px';el.style.top=(e.clientY-oy)+'px';}});
+  document.addEventListener('mouseup', ()=>{drag=false;});
+}
+
+function setColor(el) {
+  document.querySelectorAll('.cpick').forEach(d=>{ d.style.border='2px solid transparent'; d.style.transform=''; });
+  el.style.border='2px solid var(--text)'; el.style.transform='scale(1.2)';
+  currentColor = el.dataset.c;
+}
+
+// ── CHANGES PANEL ────────────────────────────────────────────
+function addChange(type, desc) {
+  const id = Date.now().toString(36);
+  changes.push({ id, type, desc, page:currentPage, time:new Date(), status:'pending' });
+  renderChangesPanel(); return id;
+}
+function removeChange(id) { changes=changes.filter(c=>c.id!==id); renderChangesPanel(); }
+function renderChangesPanel() {
+  const list = document.getElementById('er-changes-list');
+  const empty = document.getElementById('er-empty');
+  if (!changes.length) { empty.style.display='block'; list.innerHTML=''; return; }
+  empty.style.display='none';
+  const typeLabel = { edit:'Metin Düzenleme', text:'Yeni Metin', hl:'Vurgulama', rect:'Dikdörtgen' };
+  const typeCls   = { edit:'badge-red', text:'badge-primary', hl:'badge-amber', rect:'badge-green' };
+  list.innerHTML = changes.map(c => `
+    <div class="change-item">
+      <div class="change-hdr">
+        <span class="badge ${typeCls[c.type]||'badge-gray'}">${typeLabel[c.type]||c.type}</span>
+        <span class="change-time">${c.time.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</span>
+      </div>
+      <div class="change-desc">${c.desc} · Sayfa ${c.page}</div>
+      <span class="badge ${c.status==='pending'?'badge-amber':c.status==='approved'?'badge-green':'badge-red'}">
+        ${c.status==='pending'?'⏳ Bekliyor':c.status==='approved'?'✅ Onaylandı':'❌ Reddedildi'}
+      </span>
+    </div>`).join('');
+}
+function erTab(tab, btn) {
+  document.querySelectorAll('.er-tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('er-changes-content').style.display   = tab==='changes' ? 'flex' : 'none';
+  document.getElementById('er-approvers-content').style.display = tab==='approvers' ? 'block' : 'none';
+}
+
+function renderApproversPanel() {
+  const list = document.getElementById('approvers-list'); if(!list) return;
+  list.innerHTML = DB.approvers.map(a => `
+    <div class="approver-item" data-id="${a.id}" onclick="toggleApproverSel(this,'${a.id}')">
+      <div class="avatar avatar-blue">${a.name.split(' ').map(n=>n[0]).join('')}</div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:600">${a.name}</div><div style="font-size:11px;color:var(--text3)">${a.dept}</div></div>
+      <div class="approver-check">✓</div>
+    </div>`).join('');
+  selectedApprovers = [DB.approvers[0].id];
+  document.querySelector('.approver-item')?.classList.add('sel');
+}
+function toggleApproverSel(el, id) {
+  el.classList.toggle('sel');
+  if(el.classList.contains('sel')) selectedApprovers.push(id);
+  else selectedApprovers = selectedApprovers.filter(a=>a!==id);
+}
+
+function submitApprovalRequest() {
+  if (!changes.length) { toast('Önce bir değişiklik yapın', 'error'); return; }
+  if (!selectedApprovers.length) { toast('En az bir onaylayıcı seçin', 'error'); return; }
+  const chList = changes.map(c=>`• ${c.desc} (Sayfa ${c.page})`).join('\n');
+  document.getElementById('modal-changes-list').innerHTML = changes.map(c=>`<div>• ${c.desc} <span style="color:var(--text3)">(Sayfa ${c.page})</span></div>`).join('');
+  const approverNames = selectedApprovers.map(id => DB.approvers.find(a=>a.id===id)?.name || id);
+  document.getElementById('modal-approvers-list').innerHTML = approverNames.map(n=>`<span class="badge badge-primary">${n}</span>`).join('');
+  const note = document.getElementById('approval-note').value.trim();
+  const nd = document.getElementById('modal-note-display');
+  if(note){nd.style.display='block';nd.textContent='"'+note+'"';}else nd.style.display='none';
+  openModal('modal-approval');
+}
+function confirmApproval() {
+  closeModal('modal-approval');
+  const docName = document.getElementById('doc-name-display').textContent;
+  const tid = 'T' + (DB.tickets.length + 1);
+  const ticket = {
+    id: tid.toLowerCase(), docName, requesterId: currentUser.id || 'u1',
+    approverId: selectedApprovers[0], status:'pending',
+    changes: changes.map(c=>c.desc), created: new Date().toLocaleString('tr-TR'),
+    note: document.getElementById('approval-note').value.trim(),
+  };
+  DB.tickets.push(ticket);
+  addLog('email', '📧', 'Onay bildirimi gönderildi', selectedApprovers.map(id=>DB.approvers.find(a=>a.id===id)?.email||id).join(', ') + ' → ' + docName);
+  toast('Onay talebi gönderildi! 📨', 'success');
+  setTimeout(() => simulateApproverNotif(ticket), 3000);
+}
+function simulateApproverNotif(ticket) {
+  toast('📬 ' + (DB.approvers.find(a=>a.id===ticket.approverId)?.name||'Onaylayıcı') + ' bildirim aldı', 'info');
+}
+
+// ═══════════════════════════════════════════════════════════
+// APPROVER TICKETS
+// ═══════════════════════════════════════════════════════════
+function renderApproverTickets() {
+  const col = document.getElementById('ticket-list-col');
+  if (!col) return;
+  const filtered = DB.tickets.filter(t => t.status === 'pending');
+  if (!filtered.length) { col.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">Bekleyen bilet yok</div><div class="empty-sub">Tüm onay talepleri işlendi.</div></div>`; return; }
+  col.innerHTML = filtered.map(t => `
+    <div class="ticket-card" onclick="openTicketReview('${t.id}',this)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div class="ticket-doc">${t.docName}</div>
+        ${statusBadge(t.status)}
+      </div>
+      <div class="ticket-user">${DB.users.find(u=>u.id===t.requesterId)?.email || t.requesterId}</div>
+      <div class="ticket-time">${t.created}</div>
+    </div>`).join('');
+}
+function openTicketReview(tid, el) {
+  document.querySelectorAll('.ticket-card').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
+  const rp = document.getElementById('review-panel-col');
+  rp.innerHTML = `
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${t.docName}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:3px">${t.created} · ${DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId}</div>
+        </div>
+        ${statusBadge(t.status)}
+      </div>
+      <div class="card-body">
+        <div class="review-canvas-wrap">
+          <div style="position:relative;display:inline-block">
+            <canvas id="review-canvas" width="400" height="500" style="display:block;box-shadow:0 8px 32px rgba(0,0,0,.35);border-radius:4px"></canvas>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(-35deg);pointer-events:none">
+              <div style="font-size:38px;font-weight:900;color:rgba(220,38,38,.15);letter-spacing:6px;font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
+            </div>
+          </div>
+        </div>
+        ${t.note?`<div style="margin-top:14px;background:var(--primary-l);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px">"${t.note}"</div>`:''}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-header"><span class="card-title">✏️ Değişiklikler (${t.changes.length})</span></div>
+      <div class="card-body">
+        <div class="review-changes-list">
+          ${t.changes.map(c=>`
+            <div class="rchange-item">
+              <div class="rchange-icon">📝</div>
+              <div class="rchange-info"><div class="rchange-title">${c}</div></div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-danger" style="flex:1" onclick="openRejectModal('${t.id}')">✗ Reddet</button>
+      <button class="btn btn-success" style="flex:1" onclick="approveTicket('${t.id}')">✓ Onayla</button>
+    </div>`;
+  drawReviewCanvas();
+}
+
+function drawReviewCanvas() {
+  const c = document.getElementById('review-canvas'); if(!c) return;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,400,500);
+  ctx.fillStyle='#1e3a5f'; ctx.fillRect(0,0,400,48);
+  ctx.fillStyle='#fff'; ctx.font='bold 13px Outfit,sans-serif';
+  ctx.fillText('HİZMET SÖZLEŞMESİ — ONAY ÖNİZLEME', 16, 30);
+  ctx.fillStyle='#374151'; ctx.font='11px Outfit,sans-serif';
+  const demo = ['MADDE 1 — TARAFLAR','ABC Teknoloji A.Ş. ve XYZ Danışmanlık Ltd.','MADDE 3 — SÜRE VE ÜCRET','Sözleşme süresi: 24 ay  ← Güncellendi','Aylık hizmet bedeli: 50.000 TL + KDV'];
+  demo.forEach((l,i)=>{
+    ctx.fillStyle=l.includes('←')?'#dc2626':i%2===0?'#1e3a5f':'#374151';
+    ctx.font=(i%2===0?'bold ':'')+`11px Outfit,sans-serif`;
+    ctx.fillText(l, 16, 80+i*40);
+  });
+}
+
+function approveTicket(tid) {
+  const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
+  t.status = 'approved';
+  t.resolved = new Date().toLocaleString('tr-TR');
+  t.downloadToken = 'tok_' + Math.random().toString(36).substr(2,8);
+  addLog('approve', '✅', 'Onay verildi', currentUser.email + ' → ' + t.docName);
+  addLog('email', '📧', 'İndirme e-postası gönderildi', (DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId) + ' ← İndirme linki');
+  document.getElementById('download-token-display').textContent = 'https://docflow.app/download/' + t.downloadToken;
+  openModal('modal-download');
+  renderApproverTickets();
+  updateNavBadges();
+  toast('Onaylandı! İndirme linki gönderildi.', 'success');
+}
+function openRejectModal(tid) { currentRejectTicketId = tid; document.getElementById('reject-reason').value=''; openModal('modal-reject'); }
+function confirmReject() {
+  const reason = document.getElementById('reject-reason').value.trim();
+  if (!reason) { toast('Gerekçe zorunlu', 'error'); return; }
+  const t = DB.tickets.find(x=>x.id===currentRejectTicketId); if(!t) return;
+  t.status='rejected'; t.rejectReason=reason; t.resolved=new Date().toLocaleString('tr-TR');
+  addLog('reject', '❌', 'Bilet reddedildi', currentUser.email + ' → ' + t.docName);
+  addLog('email', '📧', 'Red bildirimi gönderildi', (DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId) + ' ← ' + reason.slice(0,50));
+  closeModal('modal-reject');
+  renderApproverTickets();
+  document.getElementById('review-panel-col').innerHTML = `<div class="empty-state"><div class="empty-icon">✗</div><div class="empty-title">Reddedildi</div><div class="empty-sub">${reason}</div></div>`;
+  updateNavBadges();
+  toast('Bilet reddedildi', 'error');
+}
+function simulateDownload() {
+  addLog('download','⬇','Dosya indirildi', 'Token kullanıldı ve iptal edildi');
+  closeModal('modal-download'); toast('Dosya indirildi!', 'success');
+}
+
+function updateNavBadges() {
+  const pending = DB.tickets.filter(t=>t.status==='pending').length;
+  document.querySelectorAll('.nav-badge').forEach(b=>b.textContent=pending);
+}
+
+// ═══════════════════════════════════════════════════════════
+// MY TICKETS (User)
+// ═══════════════════════════════════════════════════════════
+function renderMyTickets() {
+  const tbody = document.getElementById('my-tickets-body');
+  if (!tbody) return;
+  const myT = DB.tickets.filter(t => t.requesterId === (currentUser.id||'u1') || DB.tickets);
+  tbody.innerHTML = DB.tickets.map(t => {
+    const approver = DB.approvers.find(a=>a.id===t.approverId);
+    return `<tr>
+      <td><div style="font-weight:600">${t.docName}</div><div style="font-size:11px;color:var(--text3)">${t.changes.length} değişiklik</div></td>
+      <td>${approver?.name||t.approverId}</td>
+      <td>${statusBadge(t.status)}</td>
+      <td class="text-xs c-text2">${t.created.split(' ')[0]||t.created}</td>
+      <td>${t.status==='approved'?`<button class="btn btn-success btn-sm" onclick="openDownloadModal('${t.id}')">⬇ İndir</button>`:t.status==='rejected'?`<span style="font-size:12px;color:var(--red)">${t.rejectReason||'Reddedildi'}</span>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+function openDownloadModal(tid) {
+  const t = DB.tickets.find(x=>x.id===tid); if(!t||!t.downloadToken) return;
+  document.getElementById('download-token-display').textContent = 'https://docflow.app/download/' + t.downloadToken;
+  openModal('modal-download');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN PANEL
+// ═══════════════════════════════════════════════════════════
+function adminTab(tab, btn) {
+  document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.admin-section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('as-'+tab).classList.add('active');
+  if(tab==='logs') renderLogs();
+  if(tab==='branding') previewBranding();
+}
+
+// ── BRANDING / LOGIN CUSTOMIZATION ──────────────────────────
+const DB_branding = {
+  appName: 'DocFlow', tagline: 'PDF Yönetim & Onay Platformu',
+  icon: '📄', color: '#2563eb', bg: 'gradient-blue',
+  welcome: 'Bu platforma erişim yetkili personelle sınırlıdır.',
+  showUser: true, showApprover: true, showAdmin: true,
+};
+
+// ── LOGO & BG IMAGE HANDLING ────────────────────────────────
+let brandingLogoDataUrl = null;
+let brandingBgDataUrl   = null;
+
+function handleLogoUpload(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    brandingLogoDataUrl = e.target.result;
+    document.getElementById('logo-upload-text').textContent = '✓ ' + file.name.slice(0,18);
+    document.getElementById('logo-img-preview').innerHTML = `<img src="${brandingLogoDataUrl}" style="width:100%;height:100%;object-fit:contain;border-radius:8px">`;
+    previewBranding();
+  };
+  reader.readAsDataURL(file);
+}
+function clearLogoImage() {
+  brandingLogoDataUrl = null;
+  document.getElementById('logo-upload-text').textContent = '📁 Görsel Seç';
+  document.getElementById('logo-img-preview').innerHTML = document.getElementById('br-icon').value || '📄';
+  document.getElementById('logo-file-input').value = '';
+  previewBranding();
+}
+function handleBgUpload(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    brandingBgDataUrl = e.target.result;
+    document.getElementById('bg-upload-text').textContent = '✓ ' + file.name.slice(0,18);
+    document.getElementById('bg-img-preview').innerHTML = `<img src="${brandingBgDataUrl}" style="width:100%;height:100%;object-fit:cover">`;
+    previewBranding();
+  };
+  reader.readAsDataURL(file);
+}
+function clearBgImage() {
+  brandingBgDataUrl = null;
+  document.getElementById('bg-upload-text').textContent = '📁 Arka Plan Seç';
+  document.getElementById('bg-img-preview').innerHTML = '🖼';
+  document.getElementById('bg-file-input').value = '';
+  previewBranding();
+}
+
+function previewBranding() {
+  const name    = document.getElementById('br-appname')?.value || DB_branding.appName;
+  const tagline = document.getElementById('br-tagline')?.value || DB_branding.tagline;
+  const icon    = document.getElementById('br-icon')?.value    || DB_branding.icon;
+  const color   = document.getElementById('br-color')?.value   || DB_branding.color;
+  const bg      = document.getElementById('br-bg')?.value      || DB_branding.bg;
+  const showUser     = document.getElementById('br-show-user')?.checked ?? true;
+  const showApprover = document.getElementById('br-show-approver')?.checked ?? true;
+  const showAdmin    = document.getElementById('br-show-admin')?.checked ?? true;
+
+  const bgMap = {
+    'gradient-blue':   'linear-gradient(135deg,#f0f4ff,#e8f0fe,#fef3c7)',
+    'gradient-purple': 'linear-gradient(135deg,#faf5ff,#ede9fe,#f0f4ff)',
+    'gradient-green':  'linear-gradient(135deg,#f0fdf4,#dcfce7,#f0f9ff)',
+    'gradient-dark':   'linear-gradient(135deg,#0f172a,#1e293b,#0f172a)',
+    'solid-white':     '#f8fafc',
+  };
+  const isDark = bg === 'gradient-dark';
+
+  const bp = document.getElementById('branding-preview');
+  if (!bp) return;
+
+  const bgStyle = brandingBgDataUrl
+    ? `background-image:url('${brandingBgDataUrl}');background-size:cover;background-position:center`
+    : `background:${bgMap[bg]||bgMap['gradient-blue']}`;
+
+  const logoHtml = brandingLogoDataUrl
+    ? `<img src="${brandingLogoDataUrl}" style="height:38px;width:auto;max-width:120px;object-fit:contain;border-radius:8px">`
+    : `<div style="width:38px;height:38px;background:${color};border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px">${icon}</div>`;
+
+  bp.innerHTML = `
+    <div style="${bgStyle};padding:32px 20px;display:flex;align-items:center;justify-content:center;min-height:300px;">
+      <div style="background:${isDark?'rgba(30,41,59,.96)':'rgba(255,255,255,.97)'};border-radius:14px;padding:28px 24px;width:100%;max-width:300px;box-shadow:0 8px 32px rgba(0,0,0,${isDark?.3:.12});backdrop-filter:blur(8px)">
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:20px">
+          ${logoHtml}
+          <div style="font-size:20px;font-weight:800;color:${isDark?'#f1f5f9':'#1a1d2e'}">${name.slice(0,4)}<span style="color:${color}">${name.slice(4)}</span></div>
+        </div>
+        <div style="display:flex;gap:3px;background:${isDark?'rgba(0,0,0,.3)':'#f0f2f7'};border-radius:7px;padding:3px;margin-bottom:16px">
+          ${showUser?`<div style="flex:1;background:${isDark?'rgba(255,255,255,.1)':'#fff'};border-radius:5px;padding:6px;text-align:center;font-size:11px;font-weight:600;color:${color};box-shadow:0 1px 3px rgba(0,0,0,.08)">👤 Kullanıcı</div>`:''}
+          ${showApprover?`<div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:${isDark?'#94a3b8':'#9398b2'}">✅ Onaylayıcı</div>`:''}
+          ${showAdmin?`<div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:${isDark?'#94a3b8':'#9398b2'}">🔧 Admin</div>`:''}
+        </div>
+        <div style="background:${isDark?'rgba(0,0,0,.2)':'#f7f8fc'};border:1.5px solid ${isDark?'#334155':'#e2e6f0'};border-radius:7px;padding:9px 12px;font-size:12px;color:${isDark?'#94a3b8':'#5a5f7a'};margin-bottom:12px">ornek@sirket.com</div>
+        <div style="background:${color};color:#fff;border-radius:7px;padding:10px;text-align:center;font-size:13px;font-weight:600">OTP Gönder</div>
+        <div style="text-align:center;font-size:11px;color:${isDark?'#475569':'#9398b2'};margin-top:12px;line-height:1.4">${tagline}</div>
+      </div>
+    </div>`;
+}
+
+function saveBranding() {
+  DB_branding.appName      = document.getElementById('br-appname').value;
+  DB_branding.tagline      = document.getElementById('br-tagline').value;
+  DB_branding.icon         = document.getElementById('br-icon').value;
+  DB_branding.color        = document.getElementById('br-color').value;
+  DB_branding.bg           = document.getElementById('br-bg').value;
+  DB_branding.welcome      = document.getElementById('br-welcome').value;
+  DB_branding.showUser     = document.getElementById('br-show-user').checked;
+  DB_branding.showApprover = document.getElementById('br-show-approver').checked;
+  DB_branding.showAdmin    = document.getElementById('br-show-admin').checked;
+  DB_branding.logoImg      = brandingLogoDataUrl;
+  DB_branding.bgImg        = brandingBgDataUrl;
+
+  // Apply primary color
+  document.documentElement.style.setProperty('--primary', DB_branding.color);
+  document.documentElement.style.setProperty('--primary-d', shadeColor(DB_branding.color, -15));
+  document.documentElement.style.setProperty('--primary-l', hexToRgbaStr(DB_branding.color, 0.08));
+
+  // Update all logo marks in app
+  document.querySelectorAll('.logo-mark').forEach(el => {
+    if (DB_branding.logoImg) {
+      el.innerHTML = `<img src="${DB_branding.logoImg}" style="width:100%;height:100%;object-fit:contain;border-radius:inherit">`;
+      el.style.background = 'transparent';
+    } else {
+      el.textContent = DB_branding.icon;
+      el.style.background = DB_branding.color;
+    }
+  });
+  document.querySelectorAll('.logo-text').forEach(el => {
+    el.innerHTML = DB_branding.appName.slice(0,4) + `<span style="color:${DB_branding.color}">${DB_branding.appName.slice(4)}</span>`;
+  });
+
+  // Apply login page background
+  applyLoginBackground();
+
+  // Rebuild login tabs
+  rebuildLoginTabs();
+
+  addLog('branding','🎨','Giriş sayfası güncellendi', currentUser.email);
+  toast('Giriş sayfası güncellendi! 🎨', 'success');
+  previewBranding();
+}
+
+function applyLoginBackground() {
+  const ls = document.getElementById('screen-login');
+  if (!ls) return;
+  if (DB_branding.bgImg) {
+    ls.style.backgroundImage = `url('${DB_branding.bgImg}')`;
+    ls.style.backgroundSize = 'cover';
+    ls.style.backgroundPosition = 'center';
+    ls.style.background = '';
+  } else {
+    const bgMap = {
+      'gradient-blue':   'linear-gradient(135deg,#f0f4ff 0%,#e8f0fe 60%,#fef3c7 100%)',
+      'gradient-purple': 'linear-gradient(135deg,#faf5ff 0%,#ede9fe 60%,#f0f4ff 100%)',
+      'gradient-green':  'linear-gradient(135deg,#f0fdf4 0%,#dcfce7 60%,#f0f9ff 100%)',
+      'gradient-dark':   'linear-gradient(135deg,#0f172a 0%,#1e293b 60%,#0f172a 100%)',
+      'solid-white':     '#f8fafc',
+    };
+    ls.style.backgroundImage = '';
+    ls.style.background = bgMap[DB_branding.bg] || bgMap['gradient-blue'];
+  }
+}
+
+function shadeColor(hex, pct) {
+  try {
+    const num = parseInt(hex.replace('#',''), 16);
+    const r = Math.min(255,Math.max(0,(num>>16)+(pct*255/100)|0));
+    const g = Math.min(255,Math.max(0,((num>>8)&255)+(pct*255/100)|0));
+    const b = Math.min(255,Math.max(0,(num&255)+(pct*255/100)|0));
+    return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+  } catch(e) { return hex; }
+}
+function hexToRgbaStr(hex, alpha) {
+  try {
+    const num = parseInt(hex.replace('#',''), 16);
+    return `rgba(${(num>>16)&255},${(num>>8)&255},${num&255},${alpha})`;
+  } catch(e) { return hex; }
+}
+
+function rebuildLoginTabs() {
+  const tabs = document.querySelector('.login-role-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = [
+    DB_branding.showUser     ? `<button class="role-tab active" onclick="setLoginRole('user',this)">👤 Kullanıcı</button>` : '',
+    DB_branding.showApprover ? `<button class="role-tab" onclick="setLoginRole('approver',this)">✅ Onaylayıcı</button>` : '',
+    DB_branding.showAdmin    ? `<button class="role-tab" onclick="setLoginRole('admin',this)">🔧 Admin</button>` : '',
+  ].join('');
+  // reattach first active
+  tabs.querySelector('.role-tab')?.classList.add('active');
+}
+function renderUsersTable() {
+  const tbody = document.getElementById('users-table-body'); if(!tbody) return;
+  tbody.innerHTML = DB.users.map(u => `<tr>
+    <td><div style="display:flex;align-items:center;gap:9px"><div class="avatar avatar-blue" style="width:28px;height:28px;font-size:11px">${u.email[0].toUpperCase()}</div>${u.email}</div></td>
+    <td><span class="badge ${u.role==='admin'?'badge-purple':'badge-primary'}">${u.role}</span></td>
+    <td><span class="badge ${u.active?'badge-green':'badge-gray'}">${u.active?'Aktif':'Pasif'}</span></td>
+    <td class="text-xs c-text2">${u.created}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="toggleUserActive('${u.id}')">Aç/Kapat</button></td>
+  </tr>`).join('');
+}
+function renderApproversTable() {
+  const tbody = document.getElementById('approvers-table-body'); if(!tbody) return;
+  tbody.innerHTML = DB.approvers.map(a => {
+    const pending  = DB.tickets.filter(t=>t.approverId===a.id&&t.status==='pending').length;
+    const approved = DB.tickets.filter(t=>t.approverId===a.id&&t.status==='approved').length;
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:9px"><div class="avatar avatar-green" style="width:28px;height:28px;font-size:11px">${a.name.split(' ').map(n=>n[0]).join('')}</div><div><div style="font-weight:600;font-size:13px">${a.name}</div><div style="font-size:11px;color:var(--text3)">${a.email}</div></div></div></td>
+      <td>${pending?`<span class="badge badge-amber">${pending}</span>`:'-'}</td>
+      <td>${approved?`<span class="badge badge-green">${approved}</span>`:'-'}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="removeApprover('${a.id}')">Sil</button></td>
+    </tr>`;
+  }).join('');
+}
+function openAddUserModal(role) { pendingAddUserRole=role; document.getElementById('adduser-title').textContent=role==='approver'?'Onaylayıcı Ekle':'Kullanıcı Ekle'; document.getElementById('adduser-email').value=''; openModal('modal-adduser'); }
+function saveNewUser() {
+  const email = document.getElementById('adduser-email').value.trim();
+  if (!email) { toast('E-posta girin', 'error'); return; }
+  const id = 'u'+Date.now();
+  if (pendingAddUserRole === 'approver') {
+    DB.approvers.push({id, email, role:'approver', name: email.split('@')[0], dept:'', active:true});
+    renderApproversTable(); renderApproversPanel();
+  } else {
+    DB.users.push({id, email, role:'user', active:true, created: new Date().toISOString().split('T')[0]});
+    renderUsersTable();
+  }
+  addLog('email','📧','Davet e-postası gönderildi',email);
+  closeModal('modal-adduser'); toast(email+' eklendi', 'success');
+}
+function toggleUserActive(id) { const u=DB.users.find(x=>x.id===id); if(u){u.active=!u.active; renderUsersTable(); toast('Durum güncellendi','success');} }
+function removeApprover(id) { if(confirm('Onaylayıcıyı silmek istediğinize emin misiniz?')){DB.approvers=DB.approvers.filter(a=>a.id!==id); renderApproversTable(); toast('Onaylayıcı silindi','success');} }
+function saveSMTP() { DB.smtp.host=document.getElementById('as-smtp-host').value; toast('SMTP ayarları kaydedildi','success'); addLog('email','⚙️','SMTP ayarları güncellendi',currentUser.email); }
+function testSMTP() { toast('Test e-postası gönderildi: '+DB.smtp.from,'info'); addLog('email','📧','Test e-postası gönderildi',DB.smtp.from+' → '+currentUser.email); }
+
+function renderLogs() {
+  const filter = document.getElementById('log-filter')?.value || 'all';
+  const logs = filter==='all' ? DB.logs : DB.logs.filter(l=>l.type===filter);
+  const container = document.getElementById('logs-container');
+  if(!container) return;
+  if(!logs.length){container.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Log bulunamadı</div></div>';return;}
+  container.innerHTML = logs.map(l=>`
+    <div class="log-item">
+      <div class="log-icon">${l.icon}</div>
+      <div style="flex:1">
+        <div class="log-msg" style="font-weight:600">${l.msg}</div>
+        <div class="log-detail">${l.detail}</div>
+      </div>
+      <div class="log-time">${l.time}</div>
+    </div>`).join('');
+}
+function addLog(type, icon, msg, detail) {
+  DB.logs.unshift({ type, icon, msg, detail, time: new Date().toLocaleString('tr-TR') });
+  if(document.getElementById('as-logs')?.classList.contains('active')) renderLogs();
+  const actEl = document.getElementById('dash-activity');
+  if(actEl) actEl.innerHTML = DB.logs.slice(0,6).map(l=>`<div class="log-item"><div class="log-icon">${l.icon}</div><div><div class="log-msg">${l.msg}</div><div class="log-detail">${l.detail}</div><div class="log-time">${l.time}</div></div></div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// MODAL HELPERS
+// ═══════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.modal-overlay').forEach(o => {
+    o.addEventListener('click', e => { if(e.target===o) o.classList.remove('open'); });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════
+function toast(msg, type='success') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = (type==='success'?'✓':type==='error'?'✗':'ℹ') + ' ' + msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(()=>el.remove(), 3800);
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+function hexRgba(hex, a) {
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// Drag & drop on upload zone
+document.addEventListener('DOMContentLoaded', () => {
+  const dz = document.getElementById('main-drop');
+  if (dz) {
+    dz.addEventListener('dragover', e=>{e.preventDefault();e.stopPropagation();dz.classList.add('over');});
+    dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+    dz.addEventListener('drop', e=>{
+      e.preventDefault(); e.stopPropagation(); dz.classList.remove('over');
+      const f=e.dataTransfer.files[0];
+      if(f?.type==='application/pdf') loadEditorPDF({files:[f]});
+      else if(f) toast('Lütfen bir PDF dosyası seçin', 'error');
+    });
+  }
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e=>{
+  const tag=document.activeElement.tagName;
+  // Ctrl+Z — undo (works even in edit mode)
+  if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undoLastEdit(); return; }
+  if(tag==='INPUT'||tag==='TEXTAREA'||document.activeElement.contentEditable==='true') return;
+  if(e.key==='v') setTool('select');
+  if(e.key==='e') setTool('edit');
+  if(e.key==='t') setTool('newtext');
+  if(e.key==='h') setTool('hl');
+  if(e.key==='r') setTool('rect');
+  if(e.key==='Escape') { ['modal-approval','modal-reject','modal-download','modal-adduser'].forEach(closeModal); setTool('select'); }
+});
+</script>
+
+
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 1: ADMIN SETUP (First Launch)
+═══════════════════════════════════════════════ -->
+<div id="screen-setup" class="screen active">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <div class="logo-mark">📄</div>
+      <div class="logo-text">Doc<span>Flow</span></div>
+    </div>
+
+    <!-- Step 1: Welcome -->
+    <div class="setup-step active" id="setup-s1">
+      <div class="setup-heading">Platforma Hoş Geldiniz</div>
+      <div class="setup-sub">DocFlow'u ilk kez kullanıyorsunuz. Admin hesabınızı oluşturmak için birkaç adımı tamamlayın.</div>
+      <div style="background:var(--primary-l);border:1px solid rgba(37,99,235,.2);border-radius:var(--radius-sm);padding:16px 18px;margin-bottom:24px;">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px;">🔐 İlk Kurulum</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.55">Admin hesabı oluşturduktan sonra kullanıcılar, onaylayıcılar ve SMTP ayarlarını yönetebilirsiniz.</div>
+      </div>
+      <button class="btn btn-primary btn-block btn-lg" onclick="setupNext(2)">Başlayalım →</button>
+    </div>
+
+    <!-- Step 2: Admin account -->
+    <div class="setup-step" id="setup-s2">
+      <div class="setup-heading">Admin Hesabı Oluştur</div>
+      <div class="setup-sub">Bu bilgilerle sisteme giriş yapacaksınız.</div>
+      <div class="form-group">
+        <label class="form-label">E-posta Adresi</label>
+        <input class="form-input" type="email" id="setup-email" placeholder="admin@sirket.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Şifre</label>
+        <input class="form-input" type="password" id="setup-pass" placeholder="En az 8 karakter">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Şifre Tekrar</label>
+        <input class="form-input" type="password" id="setup-pass2" placeholder="Şifreyi tekrar girin">
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" onclick="setupNext(1)">← Geri</button>
+        <button class="btn btn-primary" style="flex:1" onclick="setupAdminCreate()">Hesap Oluştur →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: SMTP -->
+    <div class="setup-step" id="setup-s3">
+      <div class="setup-heading">E-posta (SMTP) Ayarları</div>
+      <div class="setup-sub">OTP ve onay bildirimleri için SMTP sunucunuzu yapılandırın. Dilerseniz sonra da yapabilirsiniz.</div>
+      <div class="form-group">
+        <label class="form-label">SMTP Sunucu</label>
+        <input class="form-input" id="smtp-host" placeholder="smtp.gmail.com" value="smtp.gmail.com">
+      </div>
+      <div class="col-2">
+        <div class="form-group">
+          <label class="form-label">Port</label>
+          <input class="form-input" id="smtp-port" value="587" type="number">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Şifreleme</label>
+          <select class="form-select" id="smtp-sec">
+            <option value="tls">STARTTLS</option>
+            <option value="ssl">SSL/TLS</option>
+            <option value="none">Yok</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Kullanıcı Adı</label>
+        <input class="form-input" id="smtp-user" placeholder="postmaster@sirket.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Şifre</label>
+        <input class="form-input" type="password" id="smtp-pw" placeholder="SMTP şifresi">
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" onclick="setupNext(2)">← Geri</button>
+        <button class="btn btn-ghost" onclick="setupFinish()">Şimdi Atla</button>
+        <button class="btn btn-primary" style="flex:1" onclick="setupSMTP()">Kaydet & Devam →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Done -->
+    <div class="setup-step" id="setup-s4">
+      <div style="text-align:center;padding:12px 0">
+        <div style="font-size:64px;margin-bottom:16px">🎉</div>
+        <div class="setup-heading">Kurulum Tamamlandı!</div>
+        <div class="setup-sub">DocFlow kullanıma hazır. Admin paneline geçerek kullanıcı ve onaylayıcı ekleyebilirsiniz.</div>
+        <button class="btn btn-primary btn-lg" onclick="setupFinish()">Admin Paneline Gir →</button>
+      </div>
+    </div>
+
+    <!-- Step indicator -->
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:28px" id="setup-dots">
+      <div class="sdot active" style="width:24px;height:5px;border-radius:3px;background:var(--primary);transition:all .2s"></div>
+      <div class="sdot" style="width:8px;height:5px;border-radius:3px;background:var(--border2);transition:all .2s"></div>
+      <div class="sdot" style="width:8px;height:5px;border-radius:3px;background:var(--border2);transition:all .2s"></div>
+      <div class="sdot" style="width:8px;height:5px;border-radius:3px;background:var(--border2);transition:all .2s"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 2: LOGIN
+═══════════════════════════════════════════════ -->
+<div id="screen-login" class="screen">
+  <div class="login-card">
+    <div class="setup-logo">
+      <div class="logo-mark">📄</div>
+      <div class="logo-text">Doc<span>Flow</span></div>
+    </div>
+    <div class="login-role-tabs">
+      <button class="role-tab active" onclick="setLoginRole('user',this)">👤 Kullanıcı</button>
+      <button class="role-tab" onclick="setLoginRole('approver',this)">✅ Onaylayıcı</button>
+      <button class="role-tab" onclick="setLoginRole('admin',this)">🔧 Admin</button>
+    </div>
+
+    <!-- OTP flow -->
+    <div id="login-otp-section">
+      <div id="login-email-step">
+        <div class="form-group">
+          <label class="form-label">E-posta Adresi</label>
+          <input class="form-input" type="email" id="login-email" placeholder="ornek@sirket.com" value="kullanici@sirket.com">
+          <div class="form-hint">Giriş için tek kullanımlık kod gönderilecek</div>
+        </div>
+        <button class="btn btn-primary btn-block" id="otp-send-btn" onclick="sendOTP()">OTP Gönder</button>
+      </div>
+      <div id="login-otp-step" style="display:none">
+        <div style="text-align:center;margin-bottom:8px">
+          <div style="font-size:14px;color:var(--text2)">Kod gönderildi: <strong id="otp-email-show"></strong></div>
+        </div>
+        <div class="otp-inputs">
+          <input class="otp-digit" maxlength="1" oninput="otpNext(this,0)" id="otp0">
+          <input class="otp-digit" maxlength="1" oninput="otpNext(this,1)" id="otp1">
+          <input class="otp-digit" maxlength="1" oninput="otpNext(this,2)" id="otp2">
+          <input class="otp-digit" maxlength="1" oninput="otpNext(this,3)" id="otp3">
+          <input class="otp-digit" maxlength="1" oninput="otpNext(this,4)" id="otp4">
+          <input class="otp-digit" maxlength="1" oninput="otpNext(this,5)" id="otp5">
+        </div>
+        <div style="text-align:center;font-size:13px;color:var(--text3);margin-bottom:16px">
+          Demo: <strong style="color:var(--primary);font-family:'JetBrains Mono',monospace" id="demo-otp-hint"></strong>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="verifyOTP()">Giriş Yap</button>
+        <button class="btn btn-ghost btn-block" style="margin-top:9px" onclick="resetOTPStep()">← E-posta değiştir</button>
+      </div>
+    </div>
+
+    <!-- Admin password flow -->
+    <div id="login-admin-section" style="display:none">
+      <div class="form-group">
+        <label class="form-label">E-posta</label>
+        <input class="form-input" type="email" id="admin-email" value="admin@sirket.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Şifre</label>
+        <input class="form-input" type="password" id="admin-pw" placeholder="Admin şifresi">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="adminLogin()">Giriş Yap</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 3: MAIN APP
+═══════════════════════════════════════════════ -->
+<div id="screen-app" class="screen">
+
+  <!-- TOPNAV -->
+  <nav class="topnav">
+    <a class="topnav-logo">
+      <div class="logo-mark">📄</div>
+      <div class="logo-text">Doc<span>Flow</span></div>
+    </a>
+    <div class="topnav-nav" id="nav-items">
+      <!-- injected per role -->
+    </div>
+    <div class="topnav-right">
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3)">
+        <span id="session-timer-label">Oturum:</span>
+        <span id="session-timer" style="font-family:'JetBrains Mono',monospace;color:var(--amber);font-weight:600">30:00</span>
+      </div>
+      <div class="user-pill" onclick="showUserMenu()">
+        <div class="avatar avatar-blue" id="nav-avatar">K</div>
+        <div>
+          <div class="user-pill-name" id="nav-username">Kullanıcı</div>
+          <div class="user-pill-role" id="nav-userrole">user</div>
+        </div>
+        <span style="font-size:12px;color:var(--text3)">▾</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- APP BODY -->
+  <div class="app-body">
+    <div class="main-content" id="main-content">
+
+      <!-- ── PANEL: DASHBOARD ── -->
+      <div class="panel" id="panel-dashboard">
+        <div class="section-hdr">
+          <div>
+            <div class="section-title" id="dash-greeting">Merhaba 👋</div>
+            <div class="section-sub">İşte bugünkü özet.</div>
+          </div>
+          <button class="btn btn-primary" onclick="showPanel('editor')">
+            + Yeni PDF Yükle
+          </button>
+        </div>
+
+        <div class="stats-grid" id="stats-grid">
+          <!-- injected -->
+        </div>
+
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📋 Son Biletler</span>
+              <button class="btn btn-ghost btn-sm" onclick="showPanel('tickets')">Tümünü Gör</button>
+            </div>
+            <div class="card-body" style="padding:0">
+              <table class="data-table" id="dash-tickets-table">
+                <thead><tr><th>Belge</th><th>Durum</th><th>Tarih</th></tr></thead>
+                <tbody id="dash-tickets-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">📊 Sistem Aktivitesi</span></div>
+            <div class="card-body" id="dash-activity"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PANEL: PDF EDITOR ── -->
+      <div class="panel" id="panel-editor" style="margin:-28px;height:calc(100vh - 58px)">
+        <!-- UPLOAD state -->
+        <div id="editor-upload-state" style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;width:100%">
+          <div style="max-width:520px;width:100%;text-align:center">
+            <input type="file" accept=".pdf" id="pdf-file-input" style="display:none" onchange="loadEditorPDF(this)">
+            <div class="drop-zone" id="main-drop" onclick="document.getElementById('pdf-file-input').click()">
+              <div class="drop-zone-icon" style="pointer-events:none">📄</div>
+              <div class="drop-zone-title" style="pointer-events:none">PDF Yükle veya Sürükle</div>
+              <div class="drop-zone-sub" style="pointer-events:none">Maks 200 MB · Tüm PDF sürümleri desteklenir</div>
+            </div>
+            <div style="margin-top:20px;color:var(--text3);font-size:13px">— veya örnek belge seç —</div>
+            <div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
+              <button class="btn btn-ghost btn-sm" onclick="loadDemoDoc('sozlesme')">📑 Sözleşme Örneği</button>
+              <button class="btn btn-ghost btn-sm" onclick="loadDemoDoc('rapor')">📊 Rapor Örneği</button>
+              <button class="btn btn-ghost btn-sm" onclick="loadDemoDoc('fatura')">🧾 Fatura Örneği</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- EDITOR state -->
+        <div id="editor-active-state" style="display:none;width:100%;height:100%">
+          <div class="editor-layout" style="height:100%">
+            <!-- LEFT: page thumbnails -->
+            <div class="editor-left">
+              <div class="editor-toolbar" style="height:48px;flex-shrink:0">
+                <span style="font-size:13px;font-weight:700;color:var(--text)" id="doc-name-display">belge.pdf</span>
+                <span style="margin-left:auto;font-size:12px;color:var(--text3)" id="doc-page-count"></span>
+              </div>
+              <div class="editor-pages">
+                <div class="editor-pages-title">Sayfalar</div>
+                <div id="page-thumbs"></div>
+              </div>
+            </div>
+
+            <!-- CENTER: canvas + toolbar -->
+            <div class="editor-left" style="border-right:none;flex:1">
+              <!-- Toolbar -->
+              <div class="editor-toolbar" style="height:48px;flex-shrink:0">
+                <div class="tool-group">
+                  <button class="tool-btn active" id="tsel" onclick="setTool('select')" title="Seç">↖<div class="ttip">Seç (V)</div></button>
+                  <button class="tool-btn" id="tedit" onclick="setTool('edit')"><b style="font-size:13px">A</b><div class="ttip">Metni Düzenle (E)</div></button>
+                </div>
+                <div class="tool-sep"></div>
+                <div class="tool-group">
+                  <button class="tool-btn" id="tnewtext" onclick="setTool('newtext')">T+<div class="ttip">Yeni Metin (T)</div></button>
+                  <button class="tool-btn" id="thl" onclick="setTool('hl')">🖊<div class="ttip">Vurgulama (H)</div></button>
+                  <button class="tool-btn" id="trect" onclick="setTool('rect')">▭<div class="ttip">Dikdörtgen (R)</div></button>
+                </div>
+                <div class="tool-sep"></div>
+                <div class="tool-group">
+                  <button class="tool-btn" onclick="changePage(-1)">↑<div class="ttip">Önceki Sayfa</div></button>
+                  <span id="page-label" style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);min-width:52px;text-align:center">1/1</span>
+                  <button class="tool-btn" onclick="changePage(1)">↓<div class="ttip">Sonraki Sayfa</div></button>
+                </div>
+                <div class="tool-sep"></div>
+                <div class="tool-group">
+                  <button class="tool-btn" onclick="changeZoom(-0.15)">−<div class="ttip">Uzaklaştır</div></button>
+                  <span id="zoom-label" style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);min-width:46px;text-align:center">100%</span>
+                  <button class="tool-btn" onclick="changeZoom(0.15)">+<div class="ttip">Yakınlaştır</div></button>
+                </div>
+                <div class="tool-sep"></div>
+                <div class="tool-group">
+                  <button class="tool-btn" onclick="undoLastEdit()" id="undo-btn" title="Geri Al" style="opacity:.4" disabled>↩<div class="ttip">Geri Al (Ctrl+Z)</div></button>
+                </div>
+                <div class="tool-sep"></div>
+                <!-- Color picks -->
+                <div style="display:flex;gap:5px;align-items:center">
+                  <div class="cpick sel" style="width:20px;height:20px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#2563eb" onclick="setColor(this)" title="Mavi"></div>
+                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#dc2626" onclick="setColor(this)" title="Kırmızı"></div>
+                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#16a34a;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#16a34a" onclick="setColor(this)" title="Yeşil"></div>
+                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#d97706" onclick="setColor(this)" title="Amber"></div>
+                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#111;cursor:pointer;border:2px solid transparent;transition:transform .15s;border:1px solid #ddd" data-c="#111111" onclick="setColor(this)" title="Siyah"></div>
+                </div>
+              </div>
+
+              <!-- Canvas -->
+              <div class="editor-canvas" id="editor-canvas-area">
+                <div class="pdf-page-wrap" id="pdf-page-wrap">
+                  <canvas id="main-canvas"></canvas>
+                  <div id="text-layer"></div>
+                  <div id="edit-layer"></div>
+                  <div id="annot-layer"></div><div id="click-capture"></div>
+                  <div class="watermark-overlay"><div class="watermark-text">TASLAK</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- RIGHT: changes + approvers -->
+            <div class="editor-right">
+              <div class="er-tabs">
+                <button class="er-tab active" onclick="erTab('changes',this)">Değişiklikler</button>
+                <button class="er-tab" onclick="erTab('approvers',this)">Onaylayıcılar</button>
+              </div>
+              <div class="er-content" id="er-changes-content">
+                <div class="empty-state" id="er-empty" style="padding:32px 16px">
+                  <div class="empty-icon" style="font-size:32px">✏️</div>
+                  <div style="font-size:13px;color:var(--text2);margin-top:6px">Değişiklik yok.<br>PDF'e tıklayarak düzenleyin.</div>
+                </div>
+                <div id="er-changes-list"></div>
+              </div>
+              <div class="er-content" id="er-approvers-content" style="display:none">
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);margin-bottom:12px">Onaylayıcı Seç</div>
+                <div id="approvers-list"></div>
+              </div>
+              <div class="er-send">
+                <textarea class="form-textarea" id="approval-note" placeholder="Onay notu... (isteğe bağlı)" style="height:64px;margin-bottom:10px"></textarea>
+                <button class="btn btn-primary btn-block" onclick="submitApprovalRequest()">📨 Onay Talebi Gönder</button>
+                <button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="downloadEditedPDF()">⬇ Düzenlenmiş PDF İndir</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PANEL: TICKETS (Approver) ── -->
+      <div class="panel" id="panel-tickets">
+        <div class="section-hdr">
+          <div>
+            <div class="section-title">📋 Onay Kuyruk</div>
+            <div class="section-sub">Bekleyen onay talepleri</div>
+          </div>
+        </div>
+        <div class="ticket-grid">
+          <div class="ticket-list" id="ticket-list-col"></div>
+          <div class="review-panel" id="review-panel-col">
+            <div class="empty-state">
+              <div class="empty-icon">👈</div>
+              <div class="empty-title">Bilet seçin</div>
+              <div class="empty-sub">Soldaki listeden bir onay talebi seçerek incelemeye başlayın.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PANEL: MY TICKETS (User) ── -->
+      <div class="panel" id="panel-mytickets">
+        <div class="section-hdr">
+          <div>
+            <div class="section-title">📂 Taleplerim</div>
+            <div class="section-sub">Gönderdiğiniz onay talepleri</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body" style="padding:0">
+            <table class="data-table">
+              <thead><tr><th>Belge</th><th>Onaylayıcı</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr></thead>
+              <tbody id="my-tickets-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PANEL: ADMIN ── -->
+      <div class="panel" id="panel-admin">
+        <div class="section-hdr">
+          <div>
+            <div class="section-title">🔧 Admin Paneli</div>
+            <div class="section-sub">Sistem yönetimi</div>
+          </div>
+        </div>
+        <div class="admin-tabs">
+          <button class="admin-tab active" onclick="adminTab('users',this)">👥 Kullanıcılar</button>
+          <button class="admin-tab" onclick="adminTab('approvers',this)">✅ Onaylayıcılar</button>
+          <button class="admin-tab" onclick="adminTab('smtp',this)">📧 SMTP</button>
+          <button class="admin-tab" onclick="adminTab('branding',this)">🎨 Giriş Sayfası</button>
+          <button class="admin-tab" onclick="adminTab('logs',this)">📊 Loglar</button>
+        </div>
+
+        <!-- Users -->
+        <div class="admin-section active" id="as-users">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+            <button class="btn btn-primary btn-sm" onclick="openAddUserModal('user')">+ Kullanıcı Ekle</button>
+          </div>
+          <div class="card">
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead><tr><th>E-posta</th><th>Rol</th><th>Durum</th><th>Eklenme</th><th>İşlem</th></tr></thead>
+                <tbody id="users-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Approvers -->
+        <div class="admin-section" id="as-approvers">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+            <button class="btn btn-primary btn-sm" onclick="openAddUserModal('approver')">+ Onaylayıcı Ekle</button>
+          </div>
+          <div class="card">
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead><tr><th>E-posta</th><th>Bekleyen</th><th>Onaylanan</th><th>İşlem</th></tr></thead>
+                <tbody id="approvers-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMTP -->
+        <div class="admin-section" id="as-smtp">
+          <div class="card">
+            <div class="card-header"><span class="card-title">📧 SMTP Yapılandırması</span></div>
+            <div class="card-body smtp-form">
+              <div class="form-group">
+                <label class="form-label">SMTP Sunucu</label>
+                <input class="form-input" id="as-smtp-host" value="smtp.gmail.com">
+              </div>
+              <div class="col-2">
+                <div class="form-group">
+                  <label class="form-label">Port</label>
+                  <input class="form-input" id="as-smtp-port" value="587" type="number">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Şifreleme</label>
+                  <select class="form-select" id="as-smtp-sec">
+                    <option value="tls">STARTTLS</option>
+                    <option value="ssl">SSL/TLS</option>
+                    <option value="none">Yok</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Kullanıcı Adı</label>
+                <input class="form-input" id="as-smtp-user" value="postmaster@sirket.com">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Şifre</label>
+                <input class="form-input" type="password" id="as-smtp-pw" placeholder="••••••••">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Gönderen Adres</label>
+                <input class="form-input" id="as-smtp-from" value="noreply@sirket.com">
+              </div>
+              <div class="toggle-row">
+                <div><div class="toggle-label">OTP E-postası Etkin</div><div class="toggle-sub">Kullanıcılara OTP kodu gönder</div></div>
+                <label class="toggle-switch"><input type="checkbox" checked id="tog-otp"><div class="toggle-track"></div><div class="toggle-knob"></div></label>
+              </div>
+              <div class="toggle-row">
+                <div><div class="toggle-label">Onay Bildirimleri</div><div class="toggle-sub">Onaylayıcılara bildirim gönder</div></div>
+                <label class="toggle-switch"><input type="checkbox" checked id="tog-notif"><div class="toggle-track"></div><div class="toggle-knob"></div></label>
+              </div>
+              <div style="display:flex;gap:10px;margin-top:20px">
+                <button class="btn btn-ghost" onclick="testSMTP()">📤 Test E-postası Gönder</button>
+                <button class="btn btn-primary" onclick="saveSMTP()">Kaydet</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Branding / Login Customization -->
+        <div class="admin-section" id="as-branding">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+            <div class="card">
+              <div class="card-header"><span class="card-title">🎨 Giriş Sayfası Özelleştirme</span></div>
+              <div class="card-body">
+                <div class="form-group">
+                  <label class="form-label">Platform Adı</label>
+                  <input class="form-input" id="br-appname" value="DocFlow" placeholder="Şirket PDF Portalı">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Slogan / Alt Başlık</label>
+                  <input class="form-input" id="br-tagline" value="PDF Yönetim & Onay Platformu" placeholder="Şirkete özel açıklama">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Logo İkonu (Emoji veya harf)</label>
+                  <input class="form-input" id="br-icon" value="📄" placeholder="📄" style="font-size:20px">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Ana Renk (Hex)</label>
+                  <div style="display:flex;gap:10px;align-items:center">
+                    <input class="form-input" id="br-color" value="#2563eb" placeholder="#2563eb" style="flex:1">
+                    <input type="color" id="br-colorpicker" value="#2563eb" style="width:44px;height:44px;border:none;border-radius:8px;cursor:pointer;padding:2px" onchange="document.getElementById('br-color').value=this.value;previewBranding()">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Arka Plan Stili</label>
+                  <select class="form-select" id="br-bg">
+                    <option value="gradient-blue">Mavi Gradient</option>
+                    <option value="gradient-purple">Mor Gradient</option>
+                    <option value="gradient-green">Yeşil Gradient</option>
+                    <option value="gradient-dark">Koyu Tema</option>
+                    <option value="solid-white">Beyaz Sade</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Giriş Kartı Yazısı</label>
+                  <textarea class="form-textarea" id="br-welcome" style="height:72px" placeholder="Hoş geldiniz mesajı...">Bu platforma erişim yetkili personelle sınırlıdır. Giriş için e-posta adresinizi kullanın.</textarea>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Roller (görünür olanlar)</label>
+                  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-user" checked> 👤 Kullanıcı</label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-approver" checked> ✅ Onaylayıcı</label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-admin" checked> 🔧 Admin</label>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Logo Görseli (PNG/SVG, isteğe bağlı)</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <label style="flex:1;display:block;border:1.5px dashed var(--border2);border-radius:var(--radius-sm);padding:10px 14px;cursor:pointer;text-align:center;font-size:13px;color:var(--text2);transition:all .15s" id="logo-upload-label" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border2)'">
+                      <input type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this)" id="logo-file-input">
+                      <span id="logo-upload-text">📁 Görsel Seç</span>
+                    </label>
+                    <div id="logo-img-preview" style="width:48px;height:48px;border-radius:10px;border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;background:var(--surface2)">📄</div>
+                    <button class="btn btn-ghost btn-sm" onclick="clearLogoImage()" title="Görseli kaldır">✕</button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Arka Plan Görseli (isteğe bağlı)</label>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <label style="flex:1;display:block;border:1.5px dashed var(--border2);border-radius:var(--radius-sm);padding:10px 14px;cursor:pointer;text-align:center;font-size:13px;color:var(--text2);transition:all .15s" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border2)'">
+                      <input type="file" accept="image/*" style="display:none" onchange="handleBgUpload(this)" id="bg-file-input">
+                      <span id="bg-upload-text">📁 Arka Plan Seç</span>
+                    </label>
+                    <div id="bg-img-preview" style="width:48px;height:48px;border-radius:10px;border:1.5px solid var(--border);overflow:hidden;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px">🖼</div>
+                    <button class="btn btn-ghost btn-sm" onclick="clearBgImage()" title="Görseli kaldır">✕</button>
+                  </div>
+                  <div class="form-hint">Arka plan görseli seçilirse, gradient stili devre dışı kalır</div>
+                </div>
+                <div style="display:flex;gap:10px">
+                  <button class="btn btn-ghost" onclick="previewBranding()">👁 Önizle</button>
+                  <button class="btn btn-primary" style="flex:1" onclick="saveBranding()">💾 Kaydet & Uygula</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Live Preview -->
+            <div class="card">
+              <div class="card-header"><span class="card-title">👁 Canlı Önizleme</span></div>
+              <div class="card-body" style="padding:12px">
+                <div id="branding-preview" style="border-radius:10px;overflow:hidden;border:1px solid var(--border)">
+                  <div id="bp-bg" style="background:linear-gradient(135deg,#f0f4ff,#e8f0fe,#fef3c7);padding:32px 20px;display:flex;align-items:center;justify-content:center;">
+                    <div style="background:#fff;border-radius:14px;padding:28px 24px;width:100%;max-width:300px;box-shadow:0 8px 32px rgba(0,0,0,.1)">
+                      <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:20px">
+                        <div id="bp-icon" style="width:38px;height:38px;background:#2563eb;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px">📄</div>
+                        <div id="bp-name" style="font-size:20px;font-weight:800;color:#1a1d2e">Doc<span style="color:#2563eb">Flow</span></div>
+                      </div>
+                      <div id="bp-tabs" style="display:flex;gap:3px;background:#f0f2f7;border-radius:7px;padding:3px;margin-bottom:16px">
+                        <div style="flex:1;background:#fff;border-radius:5px;padding:6px;text-align:center;font-size:11px;font-weight:600;color:#2563eb;box-shadow:0 1px 3px rgba(0,0,0,.08)">👤 Kullanıcı</div>
+                        <div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:#9398b2">✅ Onaylayıcı</div>
+                        <div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:#9398b2">🔧 Admin</div>
+                      </div>
+                      <div style="background:#f7f8fc;border:1.5px solid #e2e6f0;border-radius:7px;padding:9px 12px;font-size:12px;color:#5a5f7a;margin-bottom:12px"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="afc0ddc1cac4efdcc6ddc4cadb81ccc0c2">[email&#160;protected]</a></div>
+                      <div id="bp-btn" style="background:#2563eb;color:#fff;border-radius:7px;padding:10px;text-align:center;font-size:13px;font-weight:600">OTP Gönder</div>
+                      <div id="bp-tagline" style="text-align:center;font-size:11px;color:#9398b2;margin-top:12px;line-height:1.4">PDF Yönetim & Onay Platformu</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="admin-section" id="as-logs">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📊 Sistem Logları</span>
+              <div style="display:flex;gap:8px">
+                <select class="form-select" style="width:140px;padding:7px 10px" id="log-filter" onchange="renderLogs()">
+                  <option value="all">Tümü</option>
+                  <option value="upload">Yükleme</option>
+                  <option value="approve">Onay</option>
+                  <option value="reject">Red</option>
+                  <option value="email">E-posta</option>
+                  <option value="download">İndirme</option>
+                </select>
+              </div>
+            </div>
+            <div class="card-body" id="logs-container"></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main-content -->
+  </div><!-- /app-body -->
+</div><!-- /screen-app -->
+
+<!-- ═══════════════════════════════════════════════
+     MODALS
+═══════════════════════════════════════════════ -->
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="modal-adduser">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="adduser-title">Kullanıcı Ekle</div>
+      <button class="modal-close" onclick="closeModal('modal-adduser')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">E-posta Adresi</label>
+        <input class="form-input" id="adduser-email" type="email" placeholder="kullanici@sirket.com">
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-adduser')">İptal</button>
+        <button class="btn btn-primary" style="flex:1" id="adduser-btn" onclick="saveNewUser()">Ekle</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Approval Request Modal -->
+<div class="modal-overlay" id="modal-approval">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📨 Onay Talebi Gönder</div>
+      <button class="modal-close" onclick="closeModal('modal-approval')">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Değişiklikler</div>
+        <div id="modal-changes-list" style="font-size:13px;color:var(--text);line-height:1.7"></div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Onaylayıcılar</div>
+      <div id="modal-approvers-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px"></div>
+      <div id="modal-note-display" style="display:none;background:var(--primary-l);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px;margin-bottom:16px"></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-approval')">İptal</button>
+        <button class="btn btn-primary" style="flex:1" onclick="confirmApproval()">Gönder ✓</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal-overlay" id="modal-reject">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">✗ Reddet</div>
+      <button class="modal-close" onclick="closeModal('modal-reject')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Red Gerekçesi <span style="color:var(--red)">*</span></label>
+        <textarea class="form-textarea" id="reject-reason" placeholder="Değişiklikleri reddetme nedeninizi açıklayın..."></textarea>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-reject')">İptal</button>
+        <button class="btn btn-danger" style="flex:1" onclick="confirmReject()">Reddet</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Download Modal -->
+<div class="modal-overlay" id="modal-download">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">✅ Onaylandı — İndirme Hazır</div>
+      <button class="modal-close" onclick="closeModal('modal-download')">×</button>
+    </div>
+    <div class="modal-body" style="text-align:center">
+      <div style="font-size:56px;margin-bottom:12px">🎉</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px">Değişiklikler Onaylandı!</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">İndirme bağlantınız e-posta ile gönderildi.<br>Link <strong>24 saat</strong> geçerli ve tek kullanımlıktır.</div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:20px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--primary);word-break:break-all" id="download-token-display"></div>
+      <button class="btn btn-primary btn-block btn-lg" onclick="simulateDownload()">⬇ Dosyayı İndir</button>
+      <div style="margin-top:10
