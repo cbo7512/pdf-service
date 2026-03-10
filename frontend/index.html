@@ -746,6 +746,33 @@ body.tool-select .txt-overlay:not([contenteditable="true"]):hover {
 .items-center { align-items: center; }
 .justify-between { justify-content: space-between; }
 
+/* PDF Compare View */
+.pdf-compare-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  height: 500px;
+  overflow: hidden;
+}
+.pdf-compare-pane {
+  overflow-y: auto;
+  border: 1.5px solid var(--border2);
+  border-radius: var(--radius-sm);
+  background: #f5f5f5;
+  padding: 8px;
+}
+.pdf-compare-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 10px;
+  background: var(--surface3);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  color: var(--text2);
+}
+
 /* Responsive */
 @media (max-width: 1100px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -767,8 +794,8 @@ const DB = {
   admin: null,  // { email, passHash }
   smtp: { host:'smtp.gmail.com', port:587, sec:'tls', user:'', pw:'', from:'noreply@sirket.com' },
   users: [
-    { id:'u1', email:'kullanici@sirket.com', role:'user', active:true, created:'2026-01-15' },
-    { id:'u2', email:'mehmet@sirket.com', role:'user', active:true, created:'2026-02-03' },
+    { id:'u1', email:'kullanici@sirket.com', name:'Demo', surname:'Kullanıcı', role:'user', active:true, created:'2026-01-15' },
+    { id:'u2', email:'mehmet@sirket.com', name:'Mehmet', surname:'Örnek', role:'user', active:true, created:'2026-02-03' },
   ],
   approvers: [
     { id:'a1', email:'ayse.yilmaz@sirket.com', role:'approver', name:'Ayşe Yılmaz', dept:'Hukuk Müdürü', active:true },
@@ -791,6 +818,8 @@ const DB = {
     { type:'email',    icon:'📧',  time:'2026-03-06 10:18', msg:'Red bildirimi gönderildi', detail:'kullanici@sirket.com ← Red gerekçesi' },
   ],
   otpStore: {},  // email → {code, exp}
+  userAssignments: {},  // maps userId → approverId
+  loginHints: { userEmail: 'kullanici@sirket.com', adminEmail: 'admin@sirket.com' },
   setupDone: false,
 };
 
@@ -884,9 +913,13 @@ function setLoginRole(role, btn) {
   const isAdmin = role === 'admin';
   document.getElementById('login-otp-section').style.display   = isAdmin ? 'none' : 'block';
   document.getElementById('login-admin-section').style.display = isAdmin ? 'block' : 'none';
-  document.getElementById('login-email').value =
-    role === 'user' ? 'kullanici@sirket.com' :
-    role === 'approver' ? 'ayse.yilmaz@sirket.com' : '';
+  if (role === 'user') {
+    document.getElementById('login-email').value = DB.loginHints?.userEmail || 'kullanici@sirket.com';
+  } else if (role === 'approver') {
+    document.getElementById('login-email').value = 'ayse.yilmaz@sirket.com';
+  } else if (role === 'admin') {
+    document.getElementById('admin-email').value = DB.loginHints?.adminEmail || 'admin@sirket.com';
+  }
 }
 
 function sendOTP() {
@@ -899,6 +932,8 @@ function sendOTP() {
   DB.otpStore[email] = { code, exp: Date.now() + 10 * 60 * 1000 };
   document.getElementById('otp-email-show').textContent = email;
   document.getElementById('demo-otp-hint').textContent = code;
+  const smtpConfigured = DB.smtp && DB.smtp.user && DB.smtp.user.length > 0;
+  document.getElementById('demo-otp-container').style.display = smtpConfigured ? 'none' : 'block';
   document.getElementById('login-email-step').style.display = 'none';
   document.getElementById('login-otp-step').style.display   = 'block';
   toast('OTP gönderildi: ' + email, 'info');
@@ -936,7 +971,7 @@ function loginSuccess(user) {
   currentUser = user;
   buildNav(user.role);
   document.getElementById('nav-username').textContent = user.email.split('@')[0];
-  document.getElementById('nav-userrole').textContent = { user:'Kullanıcı', approver:'Onaylayıcı', admin:'Admin' }[user.role];
+  document.getElementById('nav-userrole').textContent = { user:'Kullanıcı', approver:'Kontrollör', admin:'Admin' }[user.role];
   document.getElementById('nav-avatar').textContent = user.email[0].toUpperCase();
   startSessionTimer();
   showScreen('app');
@@ -953,7 +988,7 @@ function buildNav(role) {
     { id:'admin', label:'🔧 Yönetim', panel:'admin' },
   ] : role === 'approver' ? [
     { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
-    { id:'tickets', label:'📋 Onay Kuyruğu', panel:'tickets', badge: DB.tickets.filter(t=>t.status==='pending').length },
+    { id:'tickets', label:'📋 Kontrol Kuyruğu', panel:'tickets', badge: DB.tickets.filter(t=>t.status==='pending').length },
   ] : [
     { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
     { id:'editor', label:'✏️ PDF Düzenle', panel:'editor' },
@@ -1003,17 +1038,17 @@ function renderDashboard() {
   const sg = document.getElementById('stats-grid');
   if (role === 'admin') {
     sg.innerHTML = statCard('👥', DB.users.length, 'Toplam Kullanıcı', 'var(--primary-l)', '↑2 bu ay', 'up') +
-      statCard('✅', DB.approvers.length, 'Onaylayıcı', 'var(--green-l)', '', '') +
+      statCard('✅', DB.approvers.length, 'Kontrollör', 'var(--green-l)', '', '') +
       statCard('📋', DB.tickets.length, 'Toplam Bilet', 'var(--amber-l)', '', '') +
       statCard('⏳', DB.tickets.filter(t=>t.status==='pending').length, 'Bekleyen', 'var(--red-l)', '', '');
   } else if (role === 'approver') {
-    const mine = DB.tickets.filter(t => t.approverId === currentUser.id || true);
-    sg.innerHTML = statCard('⏳', DB.tickets.filter(t=>t.status==='pending').length, 'Bekleyen Bilet', 'var(--amber-l)', '', '') +
-      statCard('✅', DB.tickets.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
-      statCard('❌', DB.tickets.filter(t=>t.status==='rejected').length, 'Reddedilen', 'var(--red-l)', '', '') +
-      statCard('📊', DB.tickets.length, 'Toplam', 'var(--primary-l)', '', '');
+    const mine = DB.tickets.filter(t => t.approverId === currentUser.id);
+    sg.innerHTML = statCard('⏳', mine.filter(t=>t.status==='pending').length, 'Bekleyen Bilet', 'var(--amber-l)', '', '') +
+      statCard('✅', mine.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
+      statCard('❌', mine.filter(t=>t.status==='rejected').length, 'Reddedilen', 'var(--red-l)', '', '') +
+      statCard('📊', mine.length, 'Toplam', 'var(--primary-l)', '', '');
   } else {
-    const myT = DB.tickets.filter(t => t.requesterId === currentUser.id || t.requesterId === 'u1');
+    const myT = DB.tickets.filter(t => t.requesterId === currentUser.id);
     sg.innerHTML = statCard('📄', myT.length, 'Belgelerim', 'var(--primary-l)', '', '') +
       statCard('⏳', myT.filter(t=>t.status==='pending').length, 'Bekleyen', 'var(--amber-l)', '', '') +
       statCard('✅', myT.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
@@ -1039,7 +1074,7 @@ function renderDashboard() {
   // Approver tickets
   if (role === 'approver') renderApproverTickets();
   // Admin tables
-  if (role === 'admin') { renderUsersTable(); renderApproversTable(); renderLogs(); }
+  if (role === 'admin') { renderUsersTable(); renderApproversTable(); renderAssignmentsTable(); renderLogs(); }
 }
 
 function statCard(icon, val, label, bg, trend, dir) {
@@ -1982,13 +2017,23 @@ function erTab(tab, btn) {
 
 function renderApproversPanel() {
   const list = document.getElementById('approvers-list'); if(!list) return;
-  list.innerHTML = DB.approvers.map(a => `
+  // Show only assigned controller if one is set, else show all
+  const assignedId = currentUser ? DB.userAssignments[currentUser.id] : null;
+  const approversToShow = assignedId
+    ? DB.approvers.filter(a => a.id === assignedId)
+    : DB.approvers;
+  if (approversToShow.length === 0) {
+    list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:12px 0">Atanmış kontrollör bulunamadı. Admin\'den atama isteyin.</div>';
+    selectedApprovers = [];
+    return;
+  }
+  list.innerHTML = approversToShow.map(a => `
     <div class="approver-item" data-id="${a.id}" onclick="toggleApproverSel(this,'${a.id}')">
       <div class="avatar avatar-blue">${a.name.split(' ').map(n=>n[0]).join('')}</div>
       <div style="flex:1"><div style="font-size:13px;font-weight:600">${a.name}</div><div style="font-size:11px;color:var(--text3)">${a.dept}</div></div>
       <div class="approver-check">✓</div>
     </div>`).join('');
-  selectedApprovers = [DB.approvers[0].id];
+  selectedApprovers = [approversToShow[0].id];
   document.querySelector('.approver-item')?.classList.add('sel');
 }
 function toggleApproverSel(el, id) {
@@ -1999,7 +2044,7 @@ function toggleApproverSel(el, id) {
 
 function submitApprovalRequest() {
   if (!changes.length) { toast('Önce bir değişiklik yapın', 'error'); return; }
-  if (!selectedApprovers.length) { toast('En az bir onaylayıcı seçin', 'error'); return; }
+  if (!selectedApprovers.length) { toast('En az bir kontrollör seçin', 'error'); return; }
   const chList = changes.map(c=>`• ${c.desc} (Sayfa ${c.page})`).join('\n');
   document.getElementById('modal-changes-list').innerHTML = changes.map(c=>`<div>• ${c.desc} <span style="color:var(--text3)">(Sayfa ${c.page})</span></div>`).join('');
   const approverNames = selectedApprovers.map(id => DB.approvers.find(a=>a.id===id)?.name || id);
@@ -2013,11 +2058,15 @@ function confirmApproval() {
   closeModal('modal-approval');
   const docName = document.getElementById('doc-name-display').textContent;
   const tid = 'T' + (DB.tickets.length + 1);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 72 * 60 * 60 * 1000);
   const ticket = {
     id: tid.toLowerCase(), docName, requesterId: currentUser.id || 'u1',
     approverId: selectedApprovers[0], status:'pending',
-    changes: changes.map(c=>c.desc), created: new Date().toLocaleString('tr-TR'),
+    changes: changes.map(c=>c.desc), created: now.toLocaleString('tr-TR'),
     note: document.getElementById('approval-note').value.trim(),
+    uploadedAt: now.toISOString(), expiresAt: expiresAt.toISOString(),
+    sessionId: pdfSessionId || null,
   };
   DB.tickets.push(ticket);
   addLog('email', '📧', 'Onay bildirimi gönderildi', selectedApprovers.map(id=>DB.approvers.find(a=>a.id===id)?.email||id).join(', ') + ' → ' + docName);
@@ -2025,7 +2074,7 @@ function confirmApproval() {
   setTimeout(() => simulateApproverNotif(ticket), 3000);
 }
 function simulateApproverNotif(ticket) {
-  toast('📬 ' + (DB.approvers.find(a=>a.id===ticket.approverId)?.name||'Onaylayıcı') + ' bildirim aldı', 'info');
+  toast('📬 ' + (DB.approvers.find(a=>a.id===ticket.approverId)?.name||'Kontrollör') + ' bildirim aldı', 'info');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2034,7 +2083,11 @@ function simulateApproverNotif(ticket) {
 function renderApproverTickets() {
   const col = document.getElementById('ticket-list-col');
   if (!col) return;
-  const filtered = DB.tickets.filter(t => t.status === 'pending');
+  // Controllers see only their assigned tickets; admin sees all
+  const filtered = DB.tickets.filter(t =>
+    t.status === 'pending' &&
+    (currentUser?.role === 'admin' || t.approverId === currentUser?.id)
+  );
   if (!filtered.length) { col.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">Bekleyen bilet yok</div><div class="empty-sub">Tüm onay talepleri işlendi.</div></div>`; return; }
   col.innerHTML = filtered.map(t => `
     <div class="ticket-card" onclick="openTicketReview('${t.id}',this)">
@@ -2051,6 +2104,16 @@ function openTicketReview(tid, el) {
   el.classList.add('active');
   const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
   const rp = document.getElementById('review-panel-col');
+
+  // Build original PDF pane content
+  const origPaneContent = t.sessionId
+    ? `<img src="${PDF_API}/page/${t.sessionId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><canvas id="review-canvas-orig" style="display:none;width:100%"></canvas>`
+    : `<canvas id="review-canvas-orig" width="400" height="500" style="display:block;width:100%;border-radius:4px"></canvas>`;
+
+  const modPaneContent = t.sessionId
+    ? `<img src="${PDF_API}/page/${t.sessionId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><canvas id="review-canvas" style="display:none;width:100%"></canvas>`
+    : `<canvas id="review-canvas" width="400" height="500" style="display:block;width:100%;border-radius:4px"></canvas>`;
+
   rp.innerHTML = `
     <div class="card" style="margin-bottom:18px">
       <div class="card-header">
@@ -2061,11 +2124,20 @@ function openTicketReview(tid, el) {
         ${statusBadge(t.status)}
       </div>
       <div class="card-body">
-        <div class="review-canvas-wrap">
-          <div style="position:relative;display:inline-block">
-            <canvas id="review-canvas" width="400" height="500" style="display:block;box-shadow:0 8px 32px rgba(0,0,0,.35);border-radius:4px"></canvas>
-            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(-35deg);pointer-events:none">
-              <div style="font-size:38px;font-weight:900;color:rgba(220,38,38,.15);letter-spacing:6px;font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
+        <div class="pdf-compare-view">
+          <div class="pdf-compare-pane">
+            <div class="pdf-compare-label">Orijinal</div>
+            <div style="position:relative">
+              ${origPaneContent}
+            </div>
+          </div>
+          <div class="pdf-compare-pane">
+            <div class="pdf-compare-label">Değiştirilmiş</div>
+            <div style="position:relative">
+              ${modPaneContent}
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(-35deg);pointer-events:none">
+                <div style="font-size:28px;font-weight:900;color:rgba(220,38,38,.12);letter-spacing:4px;font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
+              </div>
             </div>
           </div>
         </div>
@@ -2088,7 +2160,22 @@ function openTicketReview(tid, el) {
       <button class="btn btn-danger" style="flex:1" onclick="openRejectModal('${t.id}')">✗ Reddet</button>
       <button class="btn btn-success" style="flex:1" onclick="approveTicket('${t.id}')">✓ Onayla</button>
     </div>`;
-  drawReviewCanvas();
+
+  // Draw demo canvases if no session ID
+  if (!t.sessionId) {
+    drawReviewCanvas();
+    const origCanvas = document.getElementById('review-canvas-orig');
+    if (origCanvas) {
+      const ctx2 = origCanvas.getContext('2d');
+      ctx2.fillStyle='#fff'; ctx2.fillRect(0,0,400,500);
+      ctx2.fillStyle='#1e3a5f'; ctx2.fillRect(0,0,400,48);
+      ctx2.fillStyle='#fff'; ctx2.font='bold 13px Outfit,sans-serif';
+      ctx2.fillText('HİZMET SÖZLEŞMESİ — ORİJİNAL', 16, 30);
+      ctx2.fillStyle='#374151'; ctx2.font='11px Outfit,sans-serif';
+      const lines = ['MADDE 1 — TARAFLAR','ABC Teknoloji A.Ş. ve XYZ Danışmanlık Ltd.','MADDE 3 — SÜRE VE ÜCRET','Sözleşme süresi: 12 ay','Aylık hizmet bedeli: 50.000 TL + KDV'];
+      lines.forEach((l,i)=>{ctx2.fillStyle=i%2===0?'#1e3a5f':'#374151';ctx2.font=(i%2===0?'bold ':'')+`11px Outfit,sans-serif`;ctx2.fillText(l,16,80+i*40);});
+    }
+  }
 }
 
 function drawReviewCanvas() {
@@ -2114,11 +2201,12 @@ function approveTicket(tid) {
   t.downloadToken = 'tok_' + Math.random().toString(36).substr(2,8);
   addLog('approve', '✅', 'Onay verildi', currentUser.email + ' → ' + t.docName);
   addLog('email', '📧', 'İndirme e-postası gönderildi', (DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId) + ' ← İndirme linki');
-  document.getElementById('download-token-display').textContent = 'https://docflow.app/download/' + t.downloadToken;
+  document.getElementById('download-ticket-id').value = tid;
+  document.getElementById('download-token-display').textContent = t.docName + ' — Onaylandı ✓';
   openModal('modal-download');
   renderApproverTickets();
   updateNavBadges();
-  toast('Onaylandı! İndirme linki gönderildi.', 'success');
+  toast('Onaylandı! İndirme hazır.', 'success');
 }
 function openRejectModal(tid) { currentRejectTicketId = tid; document.getElementById('reject-reason').value=''; openModal('modal-reject'); }
 function confirmReject() {
@@ -2135,8 +2223,54 @@ function confirmReject() {
   toast('Bilet reddedildi', 'error');
 }
 function simulateDownload() {
+  // Fallback for cases without ticket ID
   addLog('download','⬇','Dosya indirildi', 'Token kullanıldı ve iptal edildi');
   closeModal('modal-download'); toast('Dosya indirildi!', 'success');
+}
+
+function triggerDirectDownload(ticketId) {
+  const ticket = DB.tickets.find(t => t.id === ticketId);
+  if (!ticket) { toast('Bilet bulunamadı', 'error'); return; }
+
+  // If we have stored PDF blob bytes, download directly
+  if (ticket.pdfBlob) {
+    const url = URL.createObjectURL(ticket.pdfBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'edited_' + (ticket.docName || 'document.pdf');
+    a.click();
+    URL.revokeObjectURL(url);
+    addLog('download','⬇','Dosya indirildi', ticket.docName);
+    toast('Dosya indirildi!', 'success');
+    return;
+  }
+
+  // Fallback: if session still active, re-apply edits
+  if (ticket.sessionId) {
+    toast('PDF hazırlanıyor…', 'info');
+    const editPayload = ticket.editPayload || { edits: [] };
+    fetch(`${PDF_API}/apply/${ticket.sessionId}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(editPayload)
+    }).then(r => {
+      if (!r.ok) throw new Error('API yanıt vermedi');
+      return r.blob();
+    }).then(blob => {
+      ticket.pdfBlob = blob;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'edited_' + (ticket.docName || 'document.pdf');
+      a.click();
+      URL.revokeObjectURL(url);
+      addLog('download','⬇','Dosya indirildi', ticket.docName);
+      toast('Dosya indirildi!', 'success');
+    }).catch(() => toast('İndirme başarısız, oturum süresi dolmuş olabilir', 'error'));
+    return;
+  }
+
+  toast('İndirilebilir dosya bulunamadı', 'error');
 }
 
 function updateNavBadges() {
@@ -2150,21 +2284,23 @@ function updateNavBadges() {
 function renderMyTickets() {
   const tbody = document.getElementById('my-tickets-body');
   if (!tbody) return;
-  const myT = DB.tickets.filter(t => t.requesterId === (currentUser.id||'u1') || DB.tickets);
-  tbody.innerHTML = DB.tickets.map(t => {
+  const myT = DB.tickets.filter(t => t.requesterId === (currentUser?.id||'u1'));
+  if (!myT.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Henüz talep yok</td></tr>'; return; }
+  tbody.innerHTML = myT.map(t => {
     const approver = DB.approvers.find(a=>a.id===t.approverId);
     return `<tr>
       <td><div style="font-weight:600">${t.docName}</div><div style="font-size:11px;color:var(--text3)">${t.changes.length} değişiklik</div></td>
       <td>${approver?.name||t.approverId}</td>
       <td>${statusBadge(t.status)}</td>
       <td class="text-xs c-text2">${t.created.split(' ')[0]||t.created}</td>
-      <td>${t.status==='approved'?`<button class="btn btn-success btn-sm" onclick="openDownloadModal('${t.id}')">⬇ İndir</button>`:t.status==='rejected'?`<span style="font-size:12px;color:var(--red)">${t.rejectReason||'Reddedildi'}</span>`:''}</td>
+      <td>${t.status==='approved'?`<button class="btn btn-success btn-sm" onclick="triggerDirectDownload('${t.id}')">⬇ İndir</button>`:t.status==='rejected'?`<span style="font-size:12px;color:var(--red)">${t.rejectReason||'Reddedildi'}</span>`:''}</td>
     </tr>`;
   }).join('');
 }
 function openDownloadModal(tid) {
-  const t = DB.tickets.find(x=>x.id===tid); if(!t||!t.downloadToken) return;
-  document.getElementById('download-token-display').textContent = 'https://docflow.app/download/' + t.downloadToken;
+  const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
+  document.getElementById('download-ticket-id').value = tid;
+  document.getElementById('download-token-display').textContent = t.docName + ' — Onaylandı ✓';
   openModal('modal-download');
 }
 
@@ -2178,6 +2314,13 @@ function adminTab(tab, btn) {
   document.getElementById('as-'+tab).classList.add('active');
   if(tab==='logs') renderLogs();
   if(tab==='branding') previewBranding();
+  if(tab==='smtp') {
+    const hue = document.getElementById('hint-user-email');
+    const hae = document.getElementById('hint-admin-email');
+    if(hue) hue.value = DB.loginHints?.userEmail || 'kullanici@sirket.com';
+    if(hae) hae.value = DB.loginHints?.adminEmail || 'admin@sirket.com';
+  }
+  if(tab==='users') renderAssignmentsTable();
 }
 
 // ── BRANDING / LOGIN CUSTOMIZATION ──────────────────────────
@@ -2268,7 +2411,7 @@ function previewBranding() {
         </div>
         <div style="display:flex;gap:3px;background:${isDark?'rgba(0,0,0,.3)':'#f0f2f7'};border-radius:7px;padding:3px;margin-bottom:16px">
           ${showUser?`<div style="flex:1;background:${isDark?'rgba(255,255,255,.1)':'#fff'};border-radius:5px;padding:6px;text-align:center;font-size:11px;font-weight:600;color:${color};box-shadow:0 1px 3px rgba(0,0,0,.08)">👤 Kullanıcı</div>`:''}
-          ${showApprover?`<div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:${isDark?'#94a3b8':'#9398b2'}">✅ Onaylayıcı</div>`:''}
+          ${showApprover?`<div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:${isDark?'#94a3b8':'#9398b2'}">✅ Kontrollör</div>`:''}
           ${showAdmin?`<div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:${isDark?'#94a3b8':'#9398b2'}">🔧 Admin</div>`:''}
         </div>
         <div style="background:${isDark?'rgba(0,0,0,.2)':'#f7f8fc'};border:1.5px solid ${isDark?'#334155':'#e2e6f0'};border-radius:7px;padding:9px 12px;font-size:12px;color:${isDark?'#94a3b8':'#5a5f7a'};margin-bottom:12px">ornek@sirket.com</div>
@@ -2363,7 +2506,7 @@ function rebuildLoginTabs() {
   if (!tabs) return;
   tabs.innerHTML = [
     DB_branding.showUser     ? `<button class="role-tab active" onclick="setLoginRole('user',this)">👤 Kullanıcı</button>` : '',
-    DB_branding.showApprover ? `<button class="role-tab" onclick="setLoginRole('approver',this)">✅ Onaylayıcı</button>` : '',
+    DB_branding.showApprover ? `<button class="role-tab" onclick="setLoginRole('approver',this)">✅ Kontrollör</button>` : '',
     DB_branding.showAdmin    ? `<button class="role-tab" onclick="setLoginRole('admin',this)">🔧 Admin</button>` : '',
   ].join('');
   // reattach first active
@@ -2379,6 +2522,25 @@ function renderUsersTable() {
     <td><button class="btn btn-ghost btn-sm" onclick="toggleUserActive('${u.id}')">Aç/Kapat</button></td>
   </tr>`).join('');
 }
+function renderAssignmentsTable() {
+  const tbody = document.getElementById('assignments-table-body'); if(!tbody) return;
+  tbody.innerHTML = DB.users.filter(u=>u.role!=='admin').map(u => {
+    const opts = DB.approvers.map(a => `<option value="${a.id}" ${DB.userAssignments[u.id]===a.id?'selected':''}>${a.name}</option>`).join('');
+    const displayName = (u.name||u.email.split('@')[0]) + (u.surname ? ' ' + u.surname : '');
+    return `<tr>
+      <td><div style="font-weight:600;font-size:13px">${displayName}</div><div style="font-size:11px;color:var(--text3)">${u.email}</div></td>
+      <td><select class="form-select" style="padding:6px 10px;font-size:13px" onchange="assignUserToController('${u.id}',this.value)">
+        <option value="">— Atama yok —</option>${opts}
+      </select></td>
+    </tr>`;
+  }).join('');
+}
+function assignUserToController(userId, approverId) {
+  if (approverId) DB.userAssignments[userId] = approverId;
+  else delete DB.userAssignments[userId];
+  toast('Atama kaydedildi', 'success');
+}
+
 function renderApproversTable() {
   const tbody = document.getElementById('approvers-table-body'); if(!tbody) return;
   tbody.innerHTML = DB.approvers.map(a => {
@@ -2392,24 +2554,41 @@ function renderApproversTable() {
     </tr>`;
   }).join('');
 }
-function openAddUserModal(role) { pendingAddUserRole=role; document.getElementById('adduser-title').textContent=role==='approver'?'Onaylayıcı Ekle':'Kullanıcı Ekle'; document.getElementById('adduser-email').value=''; openModal('modal-adduser'); }
+function openAddUserModal(role) {
+  pendingAddUserRole=role;
+  document.getElementById('adduser-title').textContent=role==='approver'?'Kontrollör Ekle':'Kullanıcı Ekle';
+  document.getElementById('adduser-email').value='';
+  document.getElementById('adduser-name').value='';
+  document.getElementById('adduser-surname').value='';
+  openModal('modal-adduser');
+}
 function saveNewUser() {
   const email = document.getElementById('adduser-email').value.trim();
+  const name = document.getElementById('adduser-name').value.trim();
+  const surname = document.getElementById('adduser-surname').value.trim();
   if (!email) { toast('E-posta girin', 'error'); return; }
   const id = 'u'+Date.now();
+  const created = new Date().toISOString().split('T')[0];
   if (pendingAddUserRole === 'approver') {
-    DB.approvers.push({id, email, role:'approver', name: email.split('@')[0], dept:'', active:true});
+    DB.approvers.push({id, email, role:'approver', name: name || email.split('@')[0], surname: surname, dept:'', active:true});
     renderApproversTable(); renderApproversPanel();
   } else {
-    DB.users.push({id, email, role:'user', active:true, created: new Date().toISOString().split('T')[0]});
+    DB.users.push({id, email, name, surname, role:'user', active:true, created});
     renderUsersTable();
   }
   addLog('email','📧','Davet e-postası gönderildi',email);
+  document.getElementById('adduser-name').value='';
+  document.getElementById('adduser-surname').value='';
   closeModal('modal-adduser'); toast(email+' eklendi', 'success');
 }
 function toggleUserActive(id) { const u=DB.users.find(x=>x.id===id); if(u){u.active=!u.active; renderUsersTable(); toast('Durum güncellendi','success');} }
-function removeApprover(id) { if(confirm('Onaylayıcıyı silmek istediğinize emin misiniz?')){DB.approvers=DB.approvers.filter(a=>a.id!==id); renderApproversTable(); toast('Onaylayıcı silindi','success');} }
+function removeApprover(id) { if(confirm('Kontrollörü silmek istediğinize emin misiniz?')){DB.approvers=DB.approvers.filter(a=>a.id!==id); renderApproversTable(); toast('Kontrollör silindi','success');} }
 function saveSMTP() { DB.smtp.host=document.getElementById('as-smtp-host').value; toast('SMTP ayarları kaydedildi','success'); addLog('email','⚙️','SMTP ayarları güncellendi',currentUser.email); }
+function saveLoginHints() {
+  DB.loginHints.userEmail = document.getElementById('hint-user-email').value.trim() || 'kullanici@sirket.com';
+  DB.loginHints.adminEmail = document.getElementById('hint-admin-email').value.trim() || 'admin@sirket.com';
+  toast('Örnek adresler kaydedildi', 'success');
+}
 function testSMTP() { toast('Test e-postası gönderildi: '+DB.smtp.from,'info'); addLog('email','📧','Test e-postası gönderildi',DB.smtp.from+' → '+currentUser.email); }
 
 function renderLogs() {
@@ -2514,7 +2693,7 @@ document.addEventListener('keydown', e=>{
       <div class="setup-sub">DocFlow'u ilk kez kullanıyorsunuz. Admin hesabınızı oluşturmak için birkaç adımı tamamlayın.</div>
       <div style="background:var(--primary-l);border:1px solid rgba(37,99,235,.2);border-radius:var(--radius-sm);padding:16px 18px;margin-bottom:24px;">
         <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px;">🔐 İlk Kurulum</div>
-        <div style="font-size:13px;color:var(--text2);line-height:1.55">Admin hesabı oluşturduktan sonra kullanıcılar, onaylayıcılar ve SMTP ayarlarını yönetebilirsiniz.</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.55">Admin hesabı oluşturduktan sonra kullanıcılar, kontrollörler ve SMTP ayarlarını yönetebilirsiniz.</div>
       </div>
       <button class="btn btn-primary btn-block btn-lg" onclick="setupNext(2)">Başlayalım →</button>
     </div>
@@ -2583,7 +2762,7 @@ document.addEventListener('keydown', e=>{
       <div style="text-align:center;padding:12px 0">
         <div style="font-size:64px;margin-bottom:16px">🎉</div>
         <div class="setup-heading">Kurulum Tamamlandı!</div>
-        <div class="setup-sub">DocFlow kullanıma hazır. Admin paneline geçerek kullanıcı ve onaylayıcı ekleyebilirsiniz.</div>
+        <div class="setup-sub">DocFlow kullanıma hazır. Admin paneline geçerek kullanıcı ve kontrollör ekleyebilirsiniz.</div>
         <button class="btn btn-primary btn-lg" onclick="setupFinish()">Admin Paneline Gir →</button>
       </div>
     </div>
@@ -2609,7 +2788,7 @@ document.addEventListener('keydown', e=>{
     </div>
     <div class="login-role-tabs">
       <button class="role-tab active" onclick="setLoginRole('user',this)">👤 Kullanıcı</button>
-      <button class="role-tab" onclick="setLoginRole('approver',this)">✅ Onaylayıcı</button>
+      <button class="role-tab" onclick="setLoginRole('approver',this)">✅ Kontrollör</button>
       <button class="role-tab" onclick="setLoginRole('admin',this)">🔧 Admin</button>
     </div>
 
@@ -2618,7 +2797,7 @@ document.addEventListener('keydown', e=>{
       <div id="login-email-step">
         <div class="form-group">
           <label class="form-label">E-posta Adresi</label>
-          <input class="form-input" type="email" id="login-email" placeholder="ornek@sirket.com" value="kullanici@sirket.com">
+          <input class="form-input" type="email" id="login-email" placeholder="ornek@sirket.com">
           <div class="form-hint">Giriş için tek kullanımlık kod gönderilecek</div>
         </div>
         <button class="btn btn-primary btn-block" id="otp-send-btn" onclick="sendOTP()">OTP Gönder</button>
@@ -2635,7 +2814,7 @@ document.addEventListener('keydown', e=>{
           <input class="otp-digit" maxlength="1" oninput="otpNext(this,4)" id="otp4">
           <input class="otp-digit" maxlength="1" oninput="otpNext(this,5)" id="otp5">
         </div>
-        <div style="text-align:center;font-size:13px;color:var(--text3);margin-bottom:16px">
+        <div id="demo-otp-container" style="text-align:center;font-size:13px;color:var(--text3);margin-bottom:16px">
           Demo: <strong style="color:var(--primary);font-family:'JetBrains Mono',monospace" id="demo-otp-hint"></strong>
         </div>
         <button class="btn btn-primary btn-block" onclick="verifyOTP()">Giriş Yap</button>
@@ -2647,7 +2826,7 @@ document.addEventListener('keydown', e=>{
     <div id="login-admin-section" style="display:none">
       <div class="form-group">
         <label class="form-label">E-posta</label>
-        <input class="form-input" type="email" id="admin-email" value="admin@sirket.com">
+        <input class="form-input" type="email" id="admin-email">
       </div>
       <div class="form-group">
         <label class="form-label">Şifre</label>
@@ -2820,7 +2999,7 @@ document.addEventListener('keydown', e=>{
             <div class="editor-right">
               <div class="er-tabs">
                 <button class="er-tab active" onclick="erTab('changes',this)">Değişiklikler</button>
-                <button class="er-tab" onclick="erTab('approvers',this)">Onaylayıcılar</button>
+                <button class="er-tab" onclick="erTab('approvers',this)">Kontrollörler</button>
               </div>
               <div class="er-content" id="er-changes-content">
                 <div class="empty-state" id="er-empty" style="padding:32px 16px">
@@ -2830,7 +3009,7 @@ document.addEventListener('keydown', e=>{
                 <div id="er-changes-list"></div>
               </div>
               <div class="er-content" id="er-approvers-content" style="display:none">
-                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);margin-bottom:12px">Onaylayıcı Seç</div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);margin-bottom:12px">Kontrollör Seç</div>
                 <div id="approvers-list"></div>
               </div>
               <div class="er-send">
@@ -2847,8 +3026,8 @@ document.addEventListener('keydown', e=>{
       <div class="panel" id="panel-tickets">
         <div class="section-hdr">
           <div>
-            <div class="section-title">📋 Onay Kuyruk</div>
-            <div class="section-sub">Bekleyen onay talepleri</div>
+            <div class="section-title">📋 Kontrol Kuyruğu</div>
+            <div class="section-sub">Bekleyen kontrol talepleri</div>
           </div>
         </div>
         <div class="ticket-grid">
@@ -2874,7 +3053,7 @@ document.addEventListener('keydown', e=>{
         <div class="card">
           <div class="card-body" style="padding:0">
             <table class="data-table">
-              <thead><tr><th>Belge</th><th>Onaylayıcı</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr></thead>
+              <thead><tr><th>Belge</th><th>Kontrollör</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr></thead>
               <tbody id="my-tickets-body"></tbody>
             </table>
           </div>
@@ -2891,7 +3070,7 @@ document.addEventListener('keydown', e=>{
         </div>
         <div class="admin-tabs">
           <button class="admin-tab active" onclick="adminTab('users',this)">👥 Kullanıcılar</button>
-          <button class="admin-tab" onclick="adminTab('approvers',this)">✅ Onaylayıcılar</button>
+          <button class="admin-tab" onclick="adminTab('approvers',this)">✅ Kontrollörler</button>
           <button class="admin-tab" onclick="adminTab('smtp',this)">📧 SMTP</button>
           <button class="admin-tab" onclick="adminTab('branding',this)">🎨 Giriş Sayfası</button>
           <button class="admin-tab" onclick="adminTab('logs',this)">📊 Loglar</button>
@@ -2910,12 +3089,21 @@ document.addEventListener('keydown', e=>{
               </table>
             </div>
           </div>
+          <div class="card" style="margin-top:24px">
+            <div class="card-header"><span class="card-title">🔗 Atamalar</span><span style="font-size:12px;color:var(--text3)">Kullanıcıyı Kontrollöre Ata</span></div>
+            <div class="card-body" style="padding:0">
+              <table class="data-table">
+                <thead><tr><th>Kullanıcı</th><th>Kontrollör</th></tr></thead>
+                <tbody id="assignments-table-body"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
         <!-- Approvers -->
         <div class="admin-section" id="as-approvers">
           <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-            <button class="btn btn-primary btn-sm" onclick="openAddUserModal('approver')">+ Onaylayıcı Ekle</button>
+            <button class="btn btn-primary btn-sm" onclick="openAddUserModal('approver')">+ Kontrollör Ekle</button>
           </div>
           <div class="card">
             <div class="card-body" style="padding:0">
@@ -2967,13 +3155,27 @@ document.addEventListener('keydown', e=>{
                 <label class="toggle-switch"><input type="checkbox" checked id="tog-otp"><div class="toggle-track"></div><div class="toggle-knob"></div></label>
               </div>
               <div class="toggle-row">
-                <div><div class="toggle-label">Onay Bildirimleri</div><div class="toggle-sub">Onaylayıcılara bildirim gönder</div></div>
+                <div><div class="toggle-label">Onay Bildirimleri</div><div class="toggle-sub">Kontrollörlere bildirim gönder</div></div>
                 <label class="toggle-switch"><input type="checkbox" checked id="tog-notif"><div class="toggle-track"></div><div class="toggle-knob"></div></label>
               </div>
               <div style="display:flex;gap:10px;margin-top:20px">
                 <button class="btn btn-ghost" onclick="testSMTP()">📤 Test E-postası Gönder</button>
                 <button class="btn btn-primary" onclick="saveSMTP()">Kaydet</button>
               </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:24px">
+            <div class="card-header"><span class="card-title">🔑 Giriş Ekranı Örnek Adresler</span></div>
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label">Kullanıcı örnek e-posta</label>
+                <input class="form-input" id="hint-user-email" placeholder="kullanici@sirket.com">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Admin örnek e-posta</label>
+                <input class="form-input" id="hint-admin-email" placeholder="admin@sirket.com">
+              </div>
+              <button class="btn btn-primary" onclick="saveLoginHints()">Kaydet</button>
             </div>
           </div>
         </div>
@@ -3021,7 +3223,7 @@ document.addEventListener('keydown', e=>{
                   <label class="form-label">Roller (görünür olanlar)</label>
                   <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
                     <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-user" checked> 👤 Kullanıcı</label>
-                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-approver" checked> ✅ Onaylayıcı</label>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-approver" checked> ✅ Kontrollör</label>
                     <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="br-show-admin" checked> 🔧 Admin</label>
                   </div>
                 </div>
@@ -3068,7 +3270,7 @@ document.addEventListener('keydown', e=>{
                       </div>
                       <div id="bp-tabs" style="display:flex;gap:3px;background:#f0f2f7;border-radius:7px;padding:3px;margin-bottom:16px">
                         <div style="flex:1;background:#fff;border-radius:5px;padding:6px;text-align:center;font-size:11px;font-weight:600;color:#2563eb;box-shadow:0 1px 3px rgba(0,0,0,.08)">👤 Kullanıcı</div>
-                        <div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:#9398b2">✅ Onaylayıcı</div>
+                        <div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:#9398b2">✅ Kontrollör</div>
                         <div style="flex:1;padding:6px;text-align:center;font-size:11px;font-weight:500;color:#9398b2">🔧 Admin</div>
                       </div>
                       <div style="background:#f7f8fc;border:1.5px solid #e2e6f0;border-radius:7px;padding:9px 12px;font-size:12px;color:#5a5f7a;margin-bottom:12px"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="afc0ddc1cac4efdcc6ddc4cadb81ccc0c2">[email&#160;protected]</a></div>
@@ -3119,6 +3321,16 @@ document.addEventListener('keydown', e=>{
       <button class="modal-close" onclick="closeModal('modal-adduser')">×</button>
     </div>
     <div class="modal-body">
+      <div class="col-2">
+        <div class="form-group">
+          <label class="form-label">Ad</label>
+          <input class="form-input" id="adduser-name" placeholder="Ad">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Soyad</label>
+          <input class="form-input" id="adduser-surname" placeholder="Soyad">
+        </div>
+      </div>
       <div class="form-group">
         <label class="form-label">E-posta Adresi</label>
         <input class="form-input" id="adduser-email" type="email" placeholder="kullanici@sirket.com">
@@ -3139,11 +3351,14 @@ document.addEventListener('keydown', e=>{
       <button class="modal-close" onclick="closeModal('modal-approval')">×</button>
     </div>
     <div class="modal-body">
+      <div style="background:var(--amber-l);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--amber)">
+        ⏱ Yüklenen dosya sistemde <strong>72 saat</strong> saklanacaktır. Bu süre içinde onay/red işlemi tamamlanmalıdır.
+      </div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:18px">
         <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Değişiklikler</div>
         <div id="modal-changes-list" style="font-size:13px;color:var(--text);line-height:1.7"></div>
       </div>
-      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Onaylayıcılar</div>
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Kontrollörler</div>
       <div id="modal-approvers-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px"></div>
       <div id="modal-note-display" style="display:none;background:var(--primary-l);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px;margin-bottom:16px"></div>
       <div style="display:flex;gap:10px">
@@ -3182,9 +3397,18 @@ document.addEventListener('keydown', e=>{
       <button class="modal-close" onclick="closeModal('modal-download')">×</button>
     </div>
     <div class="modal-body" style="text-align:center">
+      <input type="hidden" id="download-ticket-id" value="">
       <div style="font-size:56px;margin-bottom:12px">🎉</div>
       <div style="font-size:15px;font-weight:700;margin-bottom:6px">Değişiklikler Onaylandı!</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">İndirme bağlantınız e-posta ile gönderildi.<br>Link <strong>24 saat</strong> geçerli ve tek kullanımlıktır.</div>
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:20px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--primary);word-break:break-all" id="download-token-display"></div>
-      <button class="btn btn-primary btn-block btn-lg" onclick="simulateDownload()">⬇ Dosyayı İndir</button>
-      <div style="margin-top:10
+      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">Onaylanan dosyayı aşağıdaki düğme ile indirebilirsiniz.</div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:20px;font-size:13px;color:var(--primary);word-break:break-all" id="download-token-display"></div>
+      <button class="btn btn-primary btn-block btn-lg" onclick="triggerDirectDownload(document.getElementById('download-ticket-id').value);closeModal('modal-download');">⬇ Dosyayı İndir</button>
+      <div style="margin-top:10px">
+        <button class="btn btn-ghost btn-block" onclick="closeModal('modal-download')">Kapat</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
