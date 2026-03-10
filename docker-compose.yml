@@ -1,0 +1,11 @@
+services:
+  pdf-service:
+    image: ghcr.io/cbo7512/pdf-service:latest
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      - pdf_tmp:/tmp/pdf_sessions
+
+volumes:
+  pdf_tmp:
