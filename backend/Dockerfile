@@ -5,7 +5,7 @@ WORKDIR /build
 
 # Copy all source files and build
 COPY . .
-RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o docflow-api ./main.go
+RUN GONOSUMDB='*' GOPROXY='direct' CGO_ENABLED=0 GOOS=linux go build -mod=mod -ldflags="-w -s" -o docflow-api ./main.go
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM alpine:3.20
