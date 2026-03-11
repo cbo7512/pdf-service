@@ -674,28 +674,28 @@ func uploadFileHandler(c *fiber.Ctx) error {
 // GET /api/files  (USER=own, ADMIN=all)
 func listFilesHandler(c *fiber.Ctx) error {
 	claims := getClaims(c)
-	var rows interface{ Next() bool }
-	var err error
+	var query string
+	var args []interface{}
 	if claims.Role == RoleAdmin {
-		rows, err = db.Query(context.Background(),
-			`SELECT id,original_name,size_bytes,uploaded_by,
+		query = `SELECT id,original_name,size_bytes,uploaded_by,
               COALESCE(pdf_session_id,''),COALESCE(mod_session_id,''),
-              status,expires_at,created_at FROM files ORDER BY created_at DESC`)
+              status,expires_at,created_at FROM files ORDER BY created_at DESC`
 	} else {
-		rows, err = db.Query(context.Background(),
-			`SELECT id,original_name,size_bytes,uploaded_by,
+		query = `SELECT id,original_name,size_bytes,uploaded_by,
               COALESCE(pdf_session_id,''),COALESCE(mod_session_id,''),
               status,expires_at,created_at FROM files WHERE uploaded_by=$1
-              ORDER BY created_at DESC`, claims.UserID)
+              ORDER BY created_at DESC`
+		args = []interface{}{claims.UserID}
 	}
+	rows, err := db.Query(context.Background(), query, args...)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	defer rows.(*pgxpool.Rows).Close()
+	defer rows.Close()
 	files := []File{}
-	for rows.(*pgxpool.Rows).Next() {
+	for rows.Next() {
 		var f File
-		rows.(*pgxpool.Rows).Scan(&f.ID, &f.OriginalName, &f.SizeBytes, &f.UploadedBy,
+		rows.Scan(&f.ID, &f.OriginalName, &f.SizeBytes, &f.UploadedBy,
 			&f.PdfSessionID, &f.ModSessionID, &f.Status, &f.ExpiresAt, &f.CreatedAt)
 		files = append(files, f)
 	}
