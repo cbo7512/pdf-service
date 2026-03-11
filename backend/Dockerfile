@@ -3,13 +3,9 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
-# Install dependencies first (cache layer)
-COPY go.mod ./
-RUN go mod download
-
-# Copy source and build
+# Copy all source files and build
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o docflow-api ./main.go
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o docflow-api ./main.go
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM alpine:3.20
