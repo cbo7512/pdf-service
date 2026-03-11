@@ -9,10 +9,12 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import fitz  # PyMuPDF
-import uuid, os, time
+import uuid, os, time, smtplib, ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 app = FastAPI(title="DocFlow PDF Service", version="1.0.0")
 
@@ -306,6 +308,50 @@ async def apply_edits(session_id: str, request: ApplyEditsRequest):
         raise
     except Exception as e:
         raise HTTPException(500, f"PDF düzenleme hatası: {e}")
+
+
+# ─── EMAIL SEND ────────────────────────────────────────────────────────────────
+
+class SendEmailRequest(BaseModel):
+    smtp_host: str
+    smtp_port: int = 587
+    smtp_sec: str = "tls"   # "tls" = STARTTLS, "ssl" = SSL/TLS, "none" = plain
+    smtp_user: str
+    smtp_pw: str
+    smtp_from: str
+    to: str
+    subject: str
+    html_body: str
+
+
+@app.post("/smtp/send")
+async def send_email(req: SendEmailRequest):
+    """Send an email via the configured SMTP server."""
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = req.subject
+        msg["From"]    = req.smtp_from
+        msg["To"]      = req.to
+        msg.attach(MIMEText(req.html_body, "html", "utf-8"))
+
+        if req.smtp_sec == "ssl":
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL(req.smtp_host, req.smtp_port, context=ctx) as s:
+                s.login(req.smtp_user, req.smtp_pw)
+                s.sendmail(req.smtp_from, [req.to], msg.as_string())
+        else:
+            with smtplib.SMTP(req.smtp_host, req.smtp_port) as s:
+                s.ehlo()
+                if req.smtp_sec == "tls":
+                    ctx = ssl.create_default_context()
+                    s.starttls(context=ctx)
+                    s.ehlo()
+                s.login(req.smtp_user, req.smtp_pw)
+                s.sendmail(req.smtp_from, [req.to], msg.as_string())
+
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, f"E-posta gönderilemedi: {e}")
 
 
 # ─── CLEANUP & HEALTH ──────────────────────────────────────────────────────────
