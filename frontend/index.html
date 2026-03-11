@@ -786,63 +786,40 @@ body.tool-select .txt-overlay:not([contenteditable="true"]):hover {
 <body>
 <script>
 // ═══════════════════════════════════════════════════════════
-// STATE
+// API CONFIG
 // ═══════════════════════════════════════════════════════════
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-const DB = {
-  admin: null,  // { email, passHash }
-  smtp: { host:'smtp.gmail.com', port:587, sec:'tls', user:'', pw:'', from:'noreply@sirket.com' },
-  users: [
-    { id:'u1', email:'kullanici@sirket.com', name:'Demo', surname:'Kullanıcı', role:'user', active:true, created:'2026-01-15' },
-    { id:'u2', email:'mehmet@sirket.com', name:'Mehmet', surname:'Örnek', role:'user', active:true, created:'2026-02-03' },
-  ],
-  approvers: [
-    { id:'a1', email:'ayse.yilmaz@sirket.com', role:'approver', name:'Ayşe Yılmaz', dept:'Hukuk Müdürü', active:true },
-    { id:'a2', email:'mehmet.kaya@sirket.com', role:'approver', name:'Mehmet Kaya', dept:'Genel Müdür', active:true },
-    { id:'a3', email:'zeynep.demir@sirket.com', role:'approver', name:'Zeynep Demir', dept:'Mali İşler', active:true },
-  ],
-  tickets: [
-    { id:'t1', docName:'Hizmet Sözleşmesi v2.pdf', requesterId:'u1', approverId:'a1', status:'approved', changes:['Madde 3: Süre "12 ay" → "24 ay"','İmza tarihi güncellendi'], created:'2026-03-01 09:14', resolved:'2026-03-01 14:32', note:'Hukuki inceleme gerekli', downloadToken:'tok_abc123' },
-    { id:'t2', docName:'Mali Rapor Q1.pdf', requesterId:'u2', approverId:'a2', status:'pending', changes:['Tablo başlığı düzeltildi','Sayfa 3 grafik eklendi'], created:'2026-03-08 11:22', note:'' },
-    { id:'t3', docName:'İş Planı 2026.pdf', requesterId:'u1', approverId:'a3', status:'rejected', changes:['Bölüm 2 yeniden yazıldı'], created:'2026-03-05 15:40', resolved:'2026-03-06 10:18', note:'', rejectReason:'Rakam hatası bulundu, revizyon gerekli.' },
-  ],
-  logs: [
-    { type:'upload',   icon:'⬆',  time:'2026-03-10 09:32', msg:'PDF yüklendi', detail:'kullanici@sirket.com → "Hizmet Sözleşmesi v2.pdf" (1.2 MB)' },
-    { type:'approve',  icon:'✅',  time:'2026-03-10 10:14', msg:'Onay verildi', detail:'ayse.yilmaz@sirket.com → T1 bileti' },
-    { type:'email',    icon:'📧',  time:'2026-03-10 10:14', msg:'İndirme e-postası gönderildi', detail:'kullanici@sirket.com ← İndirme linki' },
-    { type:'download', icon:'⬇',  time:'2026-03-10 10:18', msg:'Dosya indirildi', detail:'tok_abc123 kullanıldı ve iptal edildi' },
-    { type:'upload',   icon:'⬆',  time:'2026-03-09 14:05', msg:'PDF yüklendi', detail:'mehmet@sirket.com → "Mali Rapor Q1.pdf" (3.7 MB)' },
-    { type:'email',    icon:'📧',  time:'2026-03-09 14:06', msg:'Onay bildirimi gönderildi', detail:'mehmet.kaya@sirket.com → T2 inceleme talebi' },
-    { type:'reject',   icon:'❌',  time:'2026-03-06 10:18', msg:'Bilet reddedildi', detail:'zeynep.demir@sirket.com → T3 — Rakam hatası bulundu' },
-    { type:'email',    icon:'📧',  time:'2026-03-06 10:18', msg:'Red bildirimi gönderildi', detail:'kullanici@sirket.com ← Red gerekçesi' },
-  ],
-  otpStore: {},  // email → {code, exp}
-  userAssignments: {},  // maps userId → approverId
-  loginHints: { userEmail: 'kullanici@sirket.com', adminEmail: 'admin@sirket.com' },
-  setupDone: false,
-};
+const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const API     = isLocal ? 'http://localhost:8080/api' : '/api';
+const PDF_API = isLocal ? 'http://localhost:8000'     : '/pdf-api';
 
-let currentUser = null;
-let currentTool = 'select';
+function token() { return sessionStorage.getItem('docflow_token') || ''; }
+function authHdr() { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; }
+async function apiFetch(path, opts = {}) {
+  const headers = { 'Authorization': 'Bearer ' + token() };
+  if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  return fetch(API + path, { ...opts, headers: { ...headers, ...(opts.extraHeaders || {}) } });
+}
+
+// ── STATE ────────────────────────────────────────────────────
+let currentUser  = null;
+let currentFileId = null;   // backend file DB id after upload
+let _currentTickets = [];   // cached for approver review
+let _controllers = [];      // cached controller list
+
+let currentTool  = 'select';
 let currentColor = '#2563eb';
 let pdfDoc = null, zoom = 1.3, currentPage = 1, totalPages = 0;
 let changes = [], selectedApprovers = [];
 let activeEditBlock = null, textItems = [];
-
-// ── PDF Service API ─────────────────────────────────────────
-// When running via Docker/nginx: '/pdf-api'  (nginx proxies it)
-// When running the HTML directly from disk: 'http://localhost:8000'
-const PDF_API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? 'http://localhost:8000'
-  : '/pdf-api';
-let pdfSessionId = null;   // set after successful upload to API
-let currentDocName = '';   // filename for download
+let pdfSessionId = null;
+let currentDocName = '';
 let isDrawing = false, drawStart = null, rectEl = null;
 let sessionTimer = null, sessionSec = 1800;
-let currentLoginRole = 'user';
 let pendingAddUserRole = 'user';
 let currentRejectTicketId = null;
+const setupTemp = { email: '', pass: '', smtp: null };
 
 // ═══════════════════════════════════════════════════════════
 // SCREEN ROUTING
@@ -858,6 +835,23 @@ function showPanel(id) {
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.panel === id);
   });
+  // Lazy-load panel data
+  if (id === 'mytickets') renderMyTickets();
+  if (id === 'tickets')   renderApproverTickets();
+  if (id === 'admin')     { loadDiskUsage(); renderAssignmentsTable(); }
+  if (id === 'dashboard') renderDashboard();
+  if (id === 'editor')    renderApproversPanel();
+}
+
+async function loadDiskUsage() {
+  try {
+    const resp = await apiFetch('/admin/disk');
+    if (resp.ok) {
+      const d = await resp.json();
+      const el = document.getElementById('disk-usage-text');
+      if (el) el.textContent = `${d.human} / 10 GB (${d.percent}%)`;
+    }
+  } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -866,8 +860,7 @@ function showPanel(id) {
 function setupNext(n) {
   document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active'));
   document.getElementById('setup-s' + n).classList.add('active');
-  const dots = document.querySelectorAll('.sdot');
-  dots.forEach((d, i) => {
+  document.querySelectorAll('.sdot').forEach((d, i) => {
     d.style.width = i === n - 1 ? '24px' : '8px';
     d.style.background = i === n - 1 ? 'var(--primary)' : 'var(--border2)';
   });
@@ -879,123 +872,208 @@ function setupAdminCreate() {
   if (!email) { toast('E-posta gerekli', 'error'); return; }
   if (pass.length < 8) { toast('Şifre en az 8 karakter olmalı', 'error'); return; }
   if (pass !== pass2) { toast('Şifreler eşleşmiyor', 'error'); return; }
-  DB.admin = { email, pass };
-  // Add to users table
-  DB.users.push({ id:'admin0', email, role:'admin', active:true, created: new Date().toISOString().split('T')[0] });
-  toast('Admin hesabı oluşturuldu!', 'success');
+  setupTemp.email = email;
+  setupTemp.pass  = pass;
+  toast('Admin bilgileri kaydedildi', 'success');
   setupNext(3);
 }
 function setupSMTP() {
-  DB.smtp = {
-    host: document.getElementById('smtp-host').value,
-    port: document.getElementById('smtp-port').value,
+  setupTemp.smtp = {
+    host: document.getElementById('smtp-host').value.trim(),
+    port: parseInt(document.getElementById('smtp-port').value) || 587,
     sec:  document.getElementById('smtp-sec').value,
-    user: document.getElementById('smtp-user').value,
+    user: document.getElementById('smtp-user').value.trim(),
     pw:   document.getElementById('smtp-pw').value,
-    from: document.getElementById('smtp-user').value,
+    from: document.getElementById('smtp-user').value.trim(),
   };
   toast('SMTP ayarları kaydedildi', 'success');
   setupNext(4);
 }
-function setupFinish() {
-  DB.setupDone = true;
-  showScreen('login');
+async function setupFinish() {
+  const btn = document.querySelector('#setup-s4 .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor…'; }
+  const body = { email: setupTemp.email, password: setupTemp.pass };
+  if (setupTemp.smtp?.host) body.smtp = setupTemp.smtp;
+  try {
+    const resp = await fetch(`${API}/admin/setup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || 'Kurulum hatası', 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Admin Paneline Gir →'; } return; }
+    toast('Kurulum tamamlandı! 🎉', 'success');
+    showScreen('login');
+  } catch(e) { toast('Sunucuya bağlanılamadı', 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Admin Paneline Gir →'; } }
 }
 
 // ═══════════════════════════════════════════════════════════
 // LOGIN / OTP
 // ═══════════════════════════════════════════════════════════
-let loginRole = 'user';
 function setLoginRole(role, btn) {
-  loginRole = role;
   document.querySelectorAll('.role-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   const isAdmin = role === 'admin';
-  document.getElementById('login-otp-section').style.display   = isAdmin ? 'none' : 'block';
-  document.getElementById('login-admin-section').style.display = isAdmin ? 'block' : 'none';
-  if (role === 'user') {
-    document.getElementById('login-email').value = DB.loginHints?.userEmail || 'kullanici@sirket.com';
-  } else if (role === 'approver') {
-    document.getElementById('login-email').value = 'ayse.yilmaz@sirket.com';
-  } else if (role === 'admin') {
-    document.getElementById('admin-email').value = DB.loginHints?.adminEmail || 'admin@sirket.com';
-  }
+  document.getElementById('login-otp-section').style.display     = isAdmin ? 'none' : 'block';
+  document.getElementById('login-admin-section').style.display   = isAdmin ? 'block' : 'none';
+  document.getElementById('login-backup-section').style.display  = 'none';
 }
 
-function sendOTP() {
+function showLoginFlow(flow) {
+  document.getElementById('login-otp-section').style.display     = flow === 'otp'    ? 'block' : 'none';
+  document.getElementById('login-admin-section').style.display   = flow === 'admin'  ? 'block' : 'none';
+  document.getElementById('login-backup-section').style.display  = flow === 'backup' ? 'block' : 'none';
+}
+
+async function sendOTP() {
   const email = document.getElementById('login-email').value.trim();
   if (!email) { toast('E-posta girin', 'error'); return; }
-  // Check user exists
-  const found = [...DB.users, ...DB.approvers].find(u => u.email === email);
-  if (!found) { toast('Bu e-posta kayıtlı değil', 'error'); return; }
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  DB.otpStore[email] = { code, exp: Date.now() + 10 * 60 * 1000 };
-  document.getElementById('otp-email-show').textContent = email;
-  document.getElementById('demo-otp-hint').textContent = code;
-  const smtpConfigured = DB.smtp && DB.smtp.user && DB.smtp.user.length > 0;
-  document.getElementById('demo-otp-container').style.display = smtpConfigured ? 'none' : 'block';
-  document.getElementById('login-email-step').style.display = 'none';
-  document.getElementById('login-otp-step').style.display   = 'block';
-  toast('OTP gönderildi: ' + email, 'info');
+  const btn = document.getElementById('otp-send-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Gönderiliyor…'; }
+  try {
+    const resp = await fetch(`${API}/auth/send-otp`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || 'Hata', 'error'); return; }
+    document.getElementById('otp-email-show').textContent = email;
+    const demoContainer = document.getElementById('demo-otp-container');
+    if (data.dev_otp) {
+      document.getElementById('demo-otp-hint').textContent = data.dev_otp;
+      demoContainer.style.display = 'block';
+    } else {
+      demoContainer.style.display = 'none';
+    }
+    document.getElementById('login-email-step').style.display = 'none';
+    document.getElementById('login-otp-step').style.display   = 'block';
+    document.getElementById('backup-code-section').style.display = 'none';
+    document.getElementById('otp0').focus();
+    toast(data.smtp_configured ? 'OTP e-posta ile gönderildi' : 'OTP oluşturuldu (SMTP yapılandırılmamış)', 'info');
+  } catch(e) { toast('Sunucuya bağlanılamadı', 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'OTP Gönder'; } }
 }
+
 function otpNext(inp, idx) {
   if (inp.value.length === 1 && idx < 5) document.getElementById('otp' + (idx + 1)).focus();
   if (idx === 5 && inp.value.length === 1) verifyOTP();
 }
-function verifyOTP() {
+
+async function verifyOTP() {
   const email = document.getElementById('login-email').value.trim();
   const code  = Array.from({length:6}, (_,i) => document.getElementById('otp'+i).value).join('');
-  const rec   = DB.otpStore[email];
-  if (!rec || rec.code !== code) { toast('Geçersiz kod', 'error'); return; }
-  if (Date.now() > rec.exp) { toast('Kod süresi dolmuş', 'error'); return; }
-  delete DB.otpStore[email];
-  // Find user
-  const user = [...DB.users, ...DB.approvers].find(u => u.email === email);
-  loginSuccess(user);
+  if (code.length < 6) { toast('6 haneli kodu girin', 'error'); return; }
+  try {
+    const resp = await fetch(`${API}/auth/verify-otp`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || 'Geçersiz kod', 'error'); return; }
+    sessionStorage.setItem('docflow_token', data.token);
+    if (data.backup_codes && data.backup_codes.length > 0) {
+      showBackupCodesModal(data.backup_codes);
+    }
+    loginSuccess(data.user);
+  } catch(e) { toast('Sunucuya bağlanılamadı', 'error'); }
 }
-function adminLogin() {
+
+function showBackupSection() {
+  document.getElementById('login-otp-step').style.display   = 'none';
+  document.getElementById('backup-code-section').style.display = 'block';
+}
+function hideBackupSection() {
+  document.getElementById('login-otp-step').style.display   = 'block';
+  document.getElementById('backup-code-section').style.display = 'none';
+}
+
+async function verifyBackupCode() {
+  const email = document.getElementById('login-email').value.trim();
+  const code  = (document.getElementById('backup-code-input').value || '').trim().toUpperCase();
+  if (!code) { toast('Yedek kodu girin', 'error'); return; }
+  try {
+    const resp = await fetch(`${API}/auth/verify-backup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || 'Geçersiz yedek kod', 'error'); return; }
+    sessionStorage.setItem('docflow_token', data.token);
+    loginSuccess(data.user);
+  } catch(e) { toast('Sunucuya bağlanılamadı', 'error'); }
+}
+
+function showBackupCodesModal(codes) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">🔐 Yedek Giriş Kodlarınız</div>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--amber-l);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--amber)">
+          ⚠️ Bu kodları güvenli bir yerde saklayın! E-postanıza erişemediğinizde her biri bir kez kullanılabilir.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+          ${codes.map(c => `<code style="background:var(--surface2);border:1px solid var(--border);padding:8px 14px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:2px">${c}</code>`).join('')}
+        </div>
+        <button class="btn btn-primary btn-block" onclick="this.closest('.modal-overlay').remove()">Anladım, Kaydettim ✓</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function adminLogin() {
   const email = document.getElementById('admin-email').value.trim();
   const pw    = document.getElementById('admin-pw').value;
-  if (DB.admin && email === DB.admin.email && pw === DB.admin.pass) {
-    loginSuccess({ id:'admin0', email, role:'admin', name:'Admin' });
-  } else if (email === 'admin@sirket.com') {
-    loginSuccess({ id:'admin0', email, role:'admin', name:'Admin' });
-  } else { toast('Geçersiz giriş', 'error'); }
+  if (!email || !pw) { toast('E-posta ve şifre gerekli', 'error'); return; }
+  try {
+    const resp = await fetch(`${API}/auth/admin-login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pw })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { toast(data.error || 'Geçersiz giriş', 'error'); return; }
+    sessionStorage.setItem('docflow_token', data.token);
+    loginSuccess(data.user);
+  } catch(e) { toast('Sunucuya bağlanılamadı', 'error'); }
 }
+
 function resetOTPStep() {
-  document.getElementById('login-email-step').style.display = 'block';
-  document.getElementById('login-otp-step').style.display   = 'none';
-  for(let i=0;i<6;i++) document.getElementById('otp'+i).value = '';
+  document.getElementById('login-email-step').style.display   = 'block';
+  document.getElementById('login-otp-step').style.display     = 'none';
+  document.getElementById('backup-code-section').style.display = 'none';
+  for (let i = 0; i < 6; i++) document.getElementById('otp'+i).value = '';
 }
+
 function loginSuccess(user) {
   currentUser = user;
   buildNav(user.role);
-  document.getElementById('nav-username').textContent = user.email.split('@')[0];
-  document.getElementById('nav-userrole').textContent = { user:'Kullanıcı', approver:'Kontrollör', admin:'Admin' }[user.role];
+  document.getElementById('nav-username').textContent = user.name || user.email.split('@')[0];
+  document.getElementById('nav-userrole').textContent = { USER:'Kullanıcı', CONTROLLER:'Kontrollör', ADMIN:'Admin' }[user.role] || user.role;
   document.getElementById('nav-avatar').textContent = user.email[0].toUpperCase();
   startSessionTimer();
   showScreen('app');
   renderDashboard();
   showPanel('dashboard');
-  addLog('login', '🔑', 'Giriş yapıldı', user.email);
 }
 
 function buildNav(role) {
   const nav = document.getElementById('nav-items');
-  const items = role === 'admin' ? [
-    { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
-    { id:'editor', label:'✏️ Editör', panel:'editor' },
-    { id:'admin', label:'🔧 Yönetim', panel:'admin' },
-  ] : role === 'approver' ? [
-    { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
-    { id:'tickets', label:'📋 Kontrol Kuyruğu', panel:'tickets', badge: DB.tickets.filter(t=>t.status==='pending').length },
+  const items = role === 'ADMIN' ? [
+    { panel:'dashboard', label:'📊 Panel' },
+    { panel:'editor',    label:'✏️ Editör' },
+    { panel:'admin',     label:'🔧 Yönetim' },
+  ] : role === 'CONTROLLER' ? [
+    { panel:'dashboard', label:'📊 Panel' },
+    { panel:'tickets',   label:'📋 Kontrol Kuyruğu' },
   ] : [
-    { id:'dashboard', label:'📊 Panel', panel:'dashboard' },
-    { id:'editor', label:'✏️ PDF Düzenle', panel:'editor' },
-    { id:'mytickets', label:'📂 Taleplerim', panel:'mytickets' },
+    { panel:'dashboard', label:'📊 Panel' },
+    { panel:'editor',    label:'✏️ PDF Düzenle' },
+    { panel:'mytickets', label:'📂 Taleplerim' },
   ];
   nav.innerHTML = items.map(it =>
-    `<button class="nav-item" data-panel="${it.panel}" onclick="showPanel('${it.panel}')">${it.label}${it.badge ? `<span class="nav-badge">${it.badge}</span>` : ''}</button>`
+    `<button class="nav-item" data-panel="${it.panel}" onclick="showPanel('${it.panel}')">${it.label}</button>`
   ).join('');
   document.querySelector(`.nav-item[data-panel="dashboard"]`)?.classList.add('active');
 }
@@ -1011,7 +1089,7 @@ function startSessionTimer() {
     const m = Math.floor(sessionSec / 60).toString().padStart(2,'0');
     const s = (sessionSec % 60).toString().padStart(2,'0');
     document.getElementById('session-timer').textContent = m + ':' + s;
-    if (sessionSec <= 0) { clearInterval(sessionTimer); toast('Oturum süresi doldu', 'error'); setTimeout(() => showScreen('login'), 2000); }
+    if (sessionSec <= 0) { clearInterval(sessionTimer); toast('Oturum süresi doldu', 'error'); setTimeout(() => { sessionStorage.removeItem('docflow_token'); showScreen('login'); }, 2000); }
     if (sessionSec <= 300) document.getElementById('session-timer').style.color = 'var(--red)';
   }, 1000);
   document.addEventListener('mousemove', resetSessionTimer);
@@ -1020,8 +1098,9 @@ function startSessionTimer() {
 function resetSessionTimer() { sessionSec = 1800; document.getElementById('session-timer').style.color = 'var(--amber)'; }
 function showUserMenu() {
   if (confirm('Oturumu kapatmak istiyor musunuz?')) {
+    sessionStorage.removeItem('docflow_token');
     clearInterval(sessionTimer);
-    currentUser = null; pdfDoc = null; changes = [];
+    currentUser = null; pdfDoc = null; changes = []; currentFileId = null; pdfSessionId = null;
     showScreen('login');
     resetOTPStep();
   }
@@ -1030,51 +1109,67 @@ function showUserMenu() {
 // ═══════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════
-function renderDashboard() {
+async function renderDashboard() {
   const role = currentUser.role;
-  const name = currentUser.email.split('@')[0];
+  const name = currentUser.name || currentUser.email.split('@')[0];
   document.getElementById('dash-greeting').textContent = 'Merhaba, ' + name + ' 👋';
 
+  // Fetch tickets
+  const ticketsResp = await apiFetch('/tickets');
+  const tickets = ticketsResp.ok ? await ticketsResp.json() : [];
+
   const sg = document.getElementById('stats-grid');
-  if (role === 'admin') {
-    sg.innerHTML = statCard('👥', DB.users.length, 'Toplam Kullanıcı', 'var(--primary-l)', '↑2 bu ay', 'up') +
-      statCard('✅', DB.approvers.length, 'Kontrollör', 'var(--green-l)', '', '') +
-      statCard('📋', DB.tickets.length, 'Toplam Bilet', 'var(--amber-l)', '', '') +
-      statCard('⏳', DB.tickets.filter(t=>t.status==='pending').length, 'Bekleyen', 'var(--red-l)', '', '');
-  } else if (role === 'approver') {
-    const mine = DB.tickets.filter(t => t.approverId === currentUser.id);
-    sg.innerHTML = statCard('⏳', mine.filter(t=>t.status==='pending').length, 'Bekleyen Bilet', 'var(--amber-l)', '', '') +
-      statCard('✅', mine.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
-      statCard('❌', mine.filter(t=>t.status==='rejected').length, 'Reddedilen', 'var(--red-l)', '', '') +
-      statCard('📊', mine.length, 'Toplam', 'var(--primary-l)', '', '');
+  if (role === 'ADMIN') {
+    const usersResp = await apiFetch('/users');
+    const users = usersResp.ok ? await usersResp.json() : [];
+    sg.innerHTML =
+      statCard('👥', users.filter(u=>u.role==='USER').length, 'Toplam Kullanıcı', 'var(--primary-l)', '', '') +
+      statCard('✅', users.filter(u=>u.role==='CONTROLLER').length, 'Kontrollör', 'var(--green-l)', '', '') +
+      statCard('📋', tickets.length, 'Toplam Bilet', 'var(--amber-l)', '', '') +
+      statCard('⏳', tickets.filter(t=>t.status==='PENDING').length, 'Bekleyen', 'var(--red-l)', '', '');
+
+    // Fetch logs for admin activity
+    const logsResp = await apiFetch('/admin/logs');
+    const logs = logsResp.ok ? await logsResp.json() : [];
+    document.getElementById('dash-activity').innerHTML = logs.slice(0,6).map(l =>
+      `<div class="log-item"><div class="log-icon">${l.icon}</div><div><div class="log-msg">${l.msg}</div><div class="log-detail">${l.detail||''}</div><div class="log-time">${new Date(l.created_at).toLocaleString('tr-TR')}</div></div></div>`
+    ).join('') || '<div style="color:var(--text3);padding:12px 0;font-size:13px">Henüz aktivite yok</div>';
+
+    renderUsersTable(); renderApproversTable(); renderAssignmentsTable();
+    // Disk usage — update the admin panel header badge
+    loadDiskUsage();
+  } else if (role === 'CONTROLLER') {
+    sg.innerHTML =
+      statCard('⏳', tickets.filter(t=>t.status==='PENDING').length,   'Bekleyen Bilet', 'var(--amber-l)', '', '') +
+      statCard('✅', tickets.filter(t=>t.status==='APPROVED').length,   'Onaylanan',      'var(--green-l)', '', '') +
+      statCard('❌', tickets.filter(t=>t.status==='REJECTED').length,   'Reddedilen',     'var(--red-l)',   '', '') +
+      statCard('📊', tickets.length,                                     'Toplam',         'var(--primary-l)', '', '');
+    document.getElementById('dash-activity').innerHTML = tickets.slice(0,6).map(t =>
+      `<div class="log-item"><div class="log-icon">📋</div><div><div class="log-msg">${t.file_name}</div><div class="log-detail">${t.requester_email}</div><div class="log-time">${new Date(t.created_at).toLocaleDateString('tr-TR')}</div></div></div>`
+    ).join('') || '<div style="color:var(--text3);padding:12px 0;font-size:13px">Henüz aktivite yok</div>';
+    _currentTickets = tickets;
   } else {
-    const myT = DB.tickets.filter(t => t.requesterId === currentUser.id);
-    sg.innerHTML = statCard('📄', myT.length, 'Belgelerim', 'var(--primary-l)', '', '') +
-      statCard('⏳', myT.filter(t=>t.status==='pending').length, 'Bekleyen', 'var(--amber-l)', '', '') +
-      statCard('✅', myT.filter(t=>t.status==='approved').length, 'Onaylanan', 'var(--green-l)', '', '') +
-      statCard('❌', myT.filter(t=>t.status==='rejected').length, 'Reddedilen', 'var(--red-l)', '', '');
+    sg.innerHTML =
+      statCard('📄', tickets.length,                                     'Belgelerim', 'var(--primary-l)', '', '') +
+      statCard('⏳', tickets.filter(t=>t.status==='PENDING').length,   'Bekleyen',   'var(--amber-l)', '', '') +
+      statCard('✅', tickets.filter(t=>t.status==='APPROVED').length,   'Onaylanan',  'var(--green-l)', '', '') +
+      statCard('❌', tickets.filter(t=>t.status==='REJECTED').length,   'Reddedilen', 'var(--red-l)',   '', '');
+    document.getElementById('dash-activity').innerHTML = tickets.slice(0,6).map(t =>
+      `<div class="log-item"><div class="log-icon">📋</div><div><div class="log-msg">${t.file_name}</div><div class="log-detail">${statusBadge(t.status)}</div><div class="log-time">${new Date(t.created_at).toLocaleDateString('tr-TR')}</div></div></div>`
+    ).join('') || '<div style="color:var(--text3);padding:12px 0;font-size:13px">Henüz aktivite yok</div>';
   }
 
-  // Tickets table
+  // Tickets summary table
   const tbody = document.getElementById('dash-tickets-body');
-  tbody.innerHTML = DB.tickets.slice(0,5).map(t => `
+  tbody.innerHTML = tickets.slice(0,5).map(t => `
     <tr>
-      <td><div style="font-weight:600;font-size:13px">${t.docName}</div></td>
+      <td><div style="font-weight:600;font-size:13px">${t.file_name}</div></td>
       <td>${statusBadge(t.status)}</td>
-      <td class="text-xs c-text2">${t.created.split(' ')[0]}</td>
-    </tr>`).join('');
+      <td class="text-xs c-text2">${new Date(t.created_at).toLocaleDateString('tr-TR')}</td>
+    </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3)">Henüz bilet yok</td></tr>';
 
-  // Activity
-  document.getElementById('dash-activity').innerHTML = DB.logs.slice(0,6).map(l =>
-    `<div class="log-item"><div class="log-icon">${l.icon}</div><div><div class="log-msg">${l.msg}</div><div class="log-detail">${l.detail}</div><div class="log-time">${l.time}</div></div></div>`
-  ).join('');
-
-  // My tickets panel
-  if (role !== 'admin') renderMyTickets();
-  // Approver tickets
-  if (role === 'approver') renderApproverTickets();
-  // Admin tables
-  if (role === 'admin') { renderUsersTable(); renderApproversTable(); renderAssignmentsTable(); renderLogs(); }
+  if (role !== 'ADMIN') renderMyTickets(tickets);
+  if (role === 'CONTROLLER') renderApproverTickets(tickets);
 }
 
 function statCard(icon, val, label, bg, trend, dir) {
@@ -1087,7 +1182,13 @@ function statCard(icon, val, label, bg, trend, dir) {
 }
 
 function statusBadge(s) {
-  const map = { pending:['badge-amber','⏳ Bekliyor'], approved:['badge-green','✅ Onaylandı'], rejected:['badge-red','❌ Reddedildi'], expired:['badge-gray','Süresi Doldu'] };
+  const map = {
+    PENDING:  ['badge-amber', '⏳ Bekliyor'],
+    APPROVED: ['badge-green', '✅ Onaylandı'],
+    REJECTED: ['badge-red',   '❌ Reddedildi'],
+    ARCHIVED: ['badge-gray',  '📦 Arşivlendi'],
+    DELETED:  ['badge-gray',  '🗑 Silindi'],
+  };
   const [cls, lbl] = map[s] || ['badge-gray', s];
   return `<span class="badge ${cls}">${lbl}</span>`;
 }
@@ -1098,34 +1199,47 @@ function statusBadge(s) {
 async function loadEditorPDF(input) {
   const file = input.files[0]; if (!file) return;
   try {
-    // ── Upload to PDF service ──────────────────────────────
-    const fd = new FormData();
-    fd.append('file', file);
+    // ── 1. Upload to PDF service for rendering ─────────────
+    const fd1 = new FormData();
+    fd1.append('file', file);
     let apiOk = false;
     try {
-      const resp = await fetch(`${PDF_API}/upload`, { method: 'POST', body: fd });
+      const resp = await fetch(`${PDF_API}/upload`, { method: 'POST', body: fd1 });
       if (resp.ok) {
         const data = await resp.json();
-        pdfSessionId  = data.session_id;
-        totalPages    = data.pages;
+        pdfSessionId = data.session_id;
+        totalPages   = data.pages;
         apiOk = true;
-      } else {
-        console.warn('PDF API upload failed, status:', resp.status);
       }
     } catch(apiErr) {
       console.warn('PDF API not reachable, falling back to pdf.js:', apiErr.message);
     }
 
-    // ── Fallback to pdf.js if API unavailable ─────────────
+    // ── 2. Fallback to pdf.js if API unavailable ───────────
     if (!apiOk) {
       const buf = await file.arrayBuffer();
       pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
       totalPages = pdfDoc.numPages;
     }
 
-    currentPage   = 1;
+    // ── 3. Upload to backend API for persistence ───────────
+    currentFileId = null;
+    try {
+      const fd2 = new FormData();
+      fd2.append('file', file);
+      if (pdfSessionId) fd2.append('pdf_session_id', pdfSessionId);
+      const backendResp = await apiFetch('/files/upload', { method: 'POST', body: fd2 });
+      if (backendResp.ok) {
+        const fileData = await backendResp.json();
+        currentFileId = fileData.id;
+      } else {
+        console.warn('Backend file upload failed');
+      }
+    } catch(e) { console.warn('Backend upload error:', e.message); }
+
+    currentPage    = 1;
     currentDocName = file.name;
-    Object.keys(pageEdits).forEach(k => delete pageEdits[k]); // clear const object
+    Object.keys(pageEdits).forEach(k => delete pageEdits[k]);
     editHistory.length = 0;
 
     document.getElementById('editor-upload-state').style.display = 'none';
@@ -1139,7 +1253,6 @@ async function loadEditorPDF(input) {
     renderApproversPanel();
     changes = [];
     renderChangesPanel();
-    addLog('upload', '⬆', 'PDF yüklendi', (currentUser?.email||'') + ' → "' + file.name + '"');
     toast(file.name + (pdfSessionId ? ' yüklendi (API)' : ' yüklendi'), 'success');
   } catch(err) {
     console.error('PDF load error:', err);
@@ -1314,7 +1427,6 @@ function showDemoEditor(name) {
   renderApproversPanel();
   changes = [];
   renderChangesPanel();
-  addLog('upload', '⬆', 'PDF yüklendi', currentUser.email + ' → "' + name + '"');
   toast(name + ' yüklendi', 'success');
 }
 
@@ -2015,111 +2127,175 @@ function erTab(tab, btn) {
   document.getElementById('er-approvers-content').style.display = tab==='approvers' ? 'block' : 'none';
 }
 
-function renderApproversPanel() {
-  const list = document.getElementById('approvers-list'); if(!list) return;
-  // Show only assigned controller if one is set, else show all
-  const assignedId = currentUser ? DB.userAssignments[currentUser.id] : null;
-  const approversToShow = assignedId
-    ? DB.approvers.filter(a => a.id === assignedId)
-    : DB.approvers;
-  if (approversToShow.length === 0) {
-    list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:12px 0">Atanmış kontrollör bulunamadı. Admin\'den atama isteyin.</div>';
+async function loadControllers() {
+  try {
+    const resp = await apiFetch('/controllers');
+    _controllers = resp.ok ? await resp.json() : [];
+  } catch(e) { _controllers = []; }
+}
+
+async function renderApproversPanel() {
+  const list = document.getElementById('approvers-list'); if (!list) return;
+  if (!_controllers.length) await loadControllers();
+  if (!_controllers.length) {
+    list.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:12px 0">Kontrollör bulunamadı. Admin\'den kontrollör eklenmesini isteyin.</div>';
     selectedApprovers = [];
     return;
   }
-  list.innerHTML = approversToShow.map(a => `
-    <div class="approver-item" data-id="${a.id}" onclick="toggleApproverSel(this,'${a.id}')">
-      <div class="avatar avatar-blue">${a.name.split(' ').map(n=>n[0]).join('')}</div>
-      <div style="flex:1"><div style="font-size:13px;font-weight:600">${a.name}</div><div style="font-size:11px;color:var(--text3)">${a.dept}</div></div>
+  list.innerHTML = _controllers.map(c => {
+    const displayName = [c.name, c.surname].filter(Boolean).join(' ') || c.email.split('@')[0];
+    const initials = displayName.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2);
+    return `<div class="approver-item" data-id="${c.id}" onclick="toggleApproverSel(this,'${c.id}')">
+      <div class="avatar avatar-blue">${initials}</div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:600">${displayName}</div><div style="font-size:11px;color:var(--text3)">${c.email}</div></div>
       <div class="approver-check">✓</div>
-    </div>`).join('');
-  selectedApprovers = [approversToShow[0].id];
+    </div>`;
+  }).join('');
+  selectedApprovers = [_controllers[0].id];
   document.querySelector('.approver-item')?.classList.add('sel');
 }
 function toggleApproverSel(el, id) {
   el.classList.toggle('sel');
-  if(el.classList.contains('sel')) selectedApprovers.push(id);
-  else selectedApprovers = selectedApprovers.filter(a=>a!==id);
+  if (el.classList.contains('sel')) selectedApprovers.push(id);
+  else selectedApprovers = selectedApprovers.filter(a => a !== id);
 }
 
 function submitApprovalRequest() {
   if (!changes.length) { toast('Önce bir değişiklik yapın', 'error'); return; }
   if (!selectedApprovers.length) { toast('En az bir kontrollör seçin', 'error'); return; }
-  const chList = changes.map(c=>`• ${c.desc} (Sayfa ${c.page})`).join('\n');
+  if (!currentFileId) { toast('Dosya henüz yüklenmedi, lütfen bekleyin', 'error'); return; }
   document.getElementById('modal-changes-list').innerHTML = changes.map(c=>`<div>• ${c.desc} <span style="color:var(--text3)">(Sayfa ${c.page})</span></div>`).join('');
-  const approverNames = selectedApprovers.map(id => DB.approvers.find(a=>a.id===id)?.name || id);
-  document.getElementById('modal-approvers-list').innerHTML = approverNames.map(n=>`<span class="badge badge-primary">${n}</span>`).join('');
+  const ctrlId = selectedApprovers[0];
+  const ctrl = _controllers.find(c=>c.id===ctrlId);
+  const ctrlName = ctrl ? ([ctrl.name, ctrl.surname].filter(Boolean).join(' ') || ctrl.email) : ctrlId;
+  document.getElementById('modal-approvers-list').innerHTML = `<span class="badge badge-primary">${ctrlName}</span>`;
   const note = document.getElementById('approval-note').value.trim();
   const nd = document.getElementById('modal-note-display');
-  if(note){nd.style.display='block';nd.textContent='"'+note+'"';}else nd.style.display='none';
+  if (note) { nd.style.display='block'; nd.textContent='"'+note+'"'; } else { nd.style.display='none'; }
   openModal('modal-approval');
 }
-function confirmApproval() {
+
+async function confirmApproval() {
   closeModal('modal-approval');
-  const docName = document.getElementById('doc-name-display').textContent;
-  const tid = 'T' + (DB.tickets.length + 1);
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 72 * 60 * 60 * 1000);
-  const ticket = {
-    id: tid.toLowerCase(), docName, requesterId: currentUser.id || 'u1',
-    approverId: selectedApprovers[0], status:'pending',
-    changes: changes.map(c=>c.desc), created: now.toLocaleString('tr-TR'),
-    note: document.getElementById('approval-note').value.trim(),
-    uploadedAt: now.toISOString(), expiresAt: expiresAt.toISOString(),
-    sessionId: pdfSessionId || null,
+
+  // Build editPayload from pageEdits store
+  const editPayloadEdits = [];
+  for (const [pageStr, pageEditMap] of Object.entries(pageEdits)) {
+    const pg = parseInt(pageStr);
+    for (const [idxStr, newText] of Object.entries(pageEditMap)) {
+      const idx = parseInt(idxStr);
+      const entry = textItems.find(e => e._idx === idx && e._page === pg);
+      if (!entry || newText === entry.origText) continue;
+      editPayloadEdits.push({
+        id: idxStr, page: pg,
+        ox: entry._ox??entry.cx, oy: entry._oy??entry.topY,
+        ox1: entry._ox1??(entry.cx+entry.w), oy1: entry._oy1??(entry.topY+entry.h),
+        original: entry.origText, new_text: newText,
+        font: entry.fontName||'Helvetica', size: entry._size??entry.fSize,
+        bold: entry.bold??false, italic: entry.italic??false, color: entry.color||'#000000',
+      });
+    }
+  }
+
+  // Apply edits → re-upload to pdf-service for controller preview
+  let modSessionId = null;
+  if (pdfSessionId && editPayloadEdits.length > 0) {
+    try {
+      const applyResp = await fetch(`${PDF_API}/apply/${pdfSessionId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ edits: editPayloadEdits })
+      });
+      if (applyResp.ok) {
+        const modBlob = await applyResp.blob();
+        const modFile = new File([modBlob], 'modified_' + currentDocName, { type:'application/pdf' });
+        const fd = new FormData(); fd.append('file', modFile);
+        const upResp = await fetch(`${PDF_API}/upload`, { method:'POST', body: fd });
+        if (upResp.ok) { const upData = await upResp.json(); modSessionId = upData.session_id; }
+      }
+    } catch(e) { console.warn('Modified session error:', e); }
+  }
+
+  // Submit ticket to backend
+  const body = {
+    file_id:      currentFileId,
+    controller_id: selectedApprovers[0],
+    changes:       changes.map(c => ({ desc: c.desc, page: c.page })),
+    edit_payload:  { edits: editPayloadEdits, mod_session_id: modSessionId },
+    note:          document.getElementById('approval-note').value.trim(),
   };
-  DB.tickets.push(ticket);
-  addLog('email', '📧', 'Onay bildirimi gönderildi', selectedApprovers.map(id=>DB.approvers.find(a=>a.id===id)?.email||id).join(', ') + ' → ' + docName);
-  toast('Onay talebi gönderildi! 📨', 'success');
-  setTimeout(() => simulateApproverNotif(ticket), 3000);
-}
-function simulateApproverNotif(ticket) {
-  toast('📬 ' + (DB.approvers.find(a=>a.id===ticket.approverId)?.name||'Kontrollör') + ' bildirim aldı', 'info');
+
+  try {
+    const resp = await apiFetch('/tickets', { method: 'POST', body: JSON.stringify(body) });
+    if (!resp.ok) {
+      const err = await resp.json();
+      toast(err.error || 'Bilet oluşturulamadı', 'error');
+      return;
+    }
+    toast('Onay talebi gönderildi! 📨', 'success');
+    showPanel('mytickets');
+  } catch(e) {
+    toast('Sunucuya bağlanılamadı', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 // APPROVER TICKETS
 // ═══════════════════════════════════════════════════════════
-function renderApproverTickets() {
+async function renderApproverTickets(preloaded) {
   const col = document.getElementById('ticket-list-col');
   if (!col) return;
-  // Controllers see only their assigned tickets; admin sees all
-  const filtered = DB.tickets.filter(t =>
-    t.status === 'pending' &&
-    (currentUser?.role === 'admin' || t.approverId === currentUser?.id)
-  );
-  if (!filtered.length) { col.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">Bekleyen bilet yok</div><div class="empty-sub">Tüm onay talepleri işlendi.</div></div>`; return; }
-  col.innerHTML = filtered.map(t => `
+  if (preloaded) { _currentTickets = preloaded; }
+  else {
+    const resp = await apiFetch('/tickets');
+    _currentTickets = resp.ok ? await resp.json() : [];
+  }
+  const pending = _currentTickets.filter(t => t.status === 'PENDING');
+  if (!pending.length) {
+    col.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">Bekleyen bilet yok</div><div class="empty-sub">Tüm onay talepleri işlendi.</div></div>`;
+    return;
+  }
+  col.innerHTML = pending.map(t => `
     <div class="ticket-card" onclick="openTicketReview('${t.id}',this)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-        <div class="ticket-doc">${t.docName}</div>
+        <div class="ticket-doc">${t.file_name}</div>
         ${statusBadge(t.status)}
       </div>
-      <div class="ticket-user">${DB.users.find(u=>u.id===t.requesterId)?.email || t.requesterId}</div>
-      <div class="ticket-time">${t.created}</div>
+      <div class="ticket-user">${t.requester_email}</div>
+      <div class="ticket-time">${new Date(t.created_at).toLocaleString('tr-TR')}</div>
     </div>`).join('');
+  updateNavBadges();
 }
+
 function openTicketReview(tid, el) {
-  document.querySelectorAll('.ticket-card').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('.ticket-card').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
-  const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
-  const rp = document.getElementById('review-panel-col');
+  const t = _currentTickets.find(x => x.id === tid); if (!t) return;
 
-  // Build original PDF pane content
-  const origPaneContent = t.sessionId
-    ? `<img src="${PDF_API}/page/${t.sessionId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><canvas id="review-canvas-orig" style="display:none;width:100%"></canvas>`
-    : `<canvas id="review-canvas-orig" width="400" height="500" style="display:block;width:100%;border-radius:4px"></canvas>`;
+  const editPayload = (typeof t.edit_payload === 'string')
+    ? JSON.parse(t.edit_payload || '{}')
+    : (t.edit_payload || {});
+  const modSessionId = editPayload.mod_session_id || t.mod_session_id || null;
+  const pdfSessId    = t.pdf_session_id || null;
 
-  const modPaneContent = t.sessionId
-    ? `<img src="${PDF_API}/page/${t.sessionId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><canvas id="review-canvas" style="display:none;width:100%"></canvas>`
-    : `<canvas id="review-canvas" width="400" height="500" style="display:block;width:100%;border-radius:4px"></canvas>`;
+  const origContent = pdfSessId
+    ? `<img src="${PDF_API}/page/${pdfSessId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.opacity='.3'">`
+    : `<div style="padding:40px;text-align:center;color:var(--text3)">Orijinal PDF oturumu sona erdi</div>`;
+  const modContent = modSessionId
+    ? `<img src="${PDF_API}/page/${modSessionId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.opacity='.3'">`
+    : `<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Değiştirilmiş PDF önizlemesi yok</div>`;
 
-  rp.innerHTML = `
+  const changesArr = Array.isArray(editPayload.edits) ? editPayload.edits : [];
+  const changesRaw = Array.isArray(t.changes) ? t.changes : (typeof t.changes === 'string' ? JSON.parse(t.changes || '[]') : []);
+  const changesDisplay = changesRaw.map(c =>
+    `<div class="rchange-item"><div class="rchange-icon">📝</div><div class="rchange-info"><div class="rchange-title">${typeof c === 'string' ? c : (c.desc || JSON.stringify(c))}</div></div></div>`
+  ).join('') || '<div style="color:var(--text3);font-size:13px">Değişiklik yok</div>';
+
+  document.getElementById('review-panel-col').innerHTML = `
     <div class="card" style="margin-bottom:18px">
       <div class="card-header">
         <div>
-          <div class="card-title">${t.docName}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:3px">${t.created} · ${DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId}</div>
+          <div class="card-title">${t.file_name}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:3px">${new Date(t.created_at).toLocaleString('tr-TR')} · ${t.requester_email}</div>
         </div>
         ${statusBadge(t.status)}
       </div>
@@ -2127,200 +2303,144 @@ function openTicketReview(tid, el) {
         <div class="pdf-compare-view">
           <div class="pdf-compare-pane">
             <div class="pdf-compare-label">Orijinal</div>
-            <div style="position:relative">
-              ${origPaneContent}
-            </div>
+            <div style="position:relative">${origContent}</div>
           </div>
           <div class="pdf-compare-pane">
             <div class="pdf-compare-label">Değiştirilmiş</div>
             <div style="position:relative">
-              ${modPaneContent}
+              ${modContent}
               <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(-35deg);pointer-events:none">
                 <div style="font-size:28px;font-weight:900;color:rgba(220,38,38,.12);letter-spacing:4px;font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
               </div>
             </div>
           </div>
         </div>
-        ${t.note?`<div style="margin-top:14px;background:var(--primary-l);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px">"${t.note}"</div>`:''}
+        ${t.note ? `<div style="margin-top:14px;background:var(--primary-l);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px">"${t.note}"</div>` : ''}
       </div>
     </div>
     <div class="card" style="margin-bottom:18px">
-      <div class="card-header"><span class="card-title">✏️ Değişiklikler (${t.changes.length})</span></div>
-      <div class="card-body">
-        <div class="review-changes-list">
-          ${t.changes.map(c=>`
-            <div class="rchange-item">
-              <div class="rchange-icon">📝</div>
-              <div class="rchange-info"><div class="rchange-title">${c}</div></div>
-            </div>`).join('')}
-        </div>
-      </div>
+      <div class="card-header"><span class="card-title">✏️ Değişiklikler (${changesRaw.length})</span></div>
+      <div class="card-body"><div class="review-changes-list">${changesDisplay}</div></div>
     </div>
     <div style="display:flex;gap:12px">
       <button class="btn btn-danger" style="flex:1" onclick="openRejectModal('${t.id}')">✗ Reddet</button>
       <button class="btn btn-success" style="flex:1" onclick="approveTicket('${t.id}')">✓ Onayla</button>
     </div>`;
-
-  // Draw demo canvases if no session ID
-  if (!t.sessionId) {
-    drawReviewCanvas();
-    const origCanvas = document.getElementById('review-canvas-orig');
-    if (origCanvas) {
-      const ctx2 = origCanvas.getContext('2d');
-      ctx2.fillStyle='#fff'; ctx2.fillRect(0,0,400,500);
-      ctx2.fillStyle='#1e3a5f'; ctx2.fillRect(0,0,400,48);
-      ctx2.fillStyle='#fff'; ctx2.font='bold 13px Outfit,sans-serif';
-      ctx2.fillText('HİZMET SÖZLEŞMESİ — ORİJİNAL', 16, 30);
-      ctx2.fillStyle='#374151'; ctx2.font='11px Outfit,sans-serif';
-      const lines = ['MADDE 1 — TARAFLAR','ABC Teknoloji A.Ş. ve XYZ Danışmanlık Ltd.','MADDE 3 — SÜRE VE ÜCRET','Sözleşme süresi: 12 ay','Aylık hizmet bedeli: 50.000 TL + KDV'];
-      lines.forEach((l,i)=>{ctx2.fillStyle=i%2===0?'#1e3a5f':'#374151';ctx2.font=(i%2===0?'bold ':'')+`11px Outfit,sans-serif`;ctx2.fillText(l,16,80+i*40);});
-    }
-  }
 }
 
-function drawReviewCanvas() {
-  const c = document.getElementById('review-canvas'); if(!c) return;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle='#fff'; ctx.fillRect(0,0,400,500);
-  ctx.fillStyle='#1e3a5f'; ctx.fillRect(0,0,400,48);
-  ctx.fillStyle='#fff'; ctx.font='bold 13px Outfit,sans-serif';
-  ctx.fillText('HİZMET SÖZLEŞMESİ — ONAY ÖNİZLEME', 16, 30);
-  ctx.fillStyle='#374151'; ctx.font='11px Outfit,sans-serif';
-  const demo = ['MADDE 1 — TARAFLAR','ABC Teknoloji A.Ş. ve XYZ Danışmanlık Ltd.','MADDE 3 — SÜRE VE ÜCRET','Sözleşme süresi: 24 ay  ← Güncellendi','Aylık hizmet bedeli: 50.000 TL + KDV'];
-  demo.forEach((l,i)=>{
-    ctx.fillStyle=l.includes('←')?'#dc2626':i%2===0?'#1e3a5f':'#374151';
-    ctx.font=(i%2===0?'bold ':'')+`11px Outfit,sans-serif`;
-    ctx.fillText(l, 16, 80+i*40);
-  });
+async function approveTicket(tid) {
+  const t = _currentTickets.find(x => x.id === tid);
+  const resp = await apiFetch(`/tickets/${tid}/approve`, { method: 'PUT' });
+  if (!resp.ok) { const e = await resp.json(); toast(e.error || 'Hata', 'error'); return; }
+  toast('Onaylandı! ✅', 'success');
+  document.getElementById('review-panel-col').innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">Onaylandı</div><div class="empty-sub">Talep sahibine bildirim gönderildi.</div></div>`;
+  await renderApproverTickets();
 }
-
-function approveTicket(tid) {
-  const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
-  t.status = 'approved';
-  t.resolved = new Date().toLocaleString('tr-TR');
-  t.downloadToken = 'tok_' + Math.random().toString(36).substr(2,8);
-  addLog('approve', '✅', 'Onay verildi', currentUser.email + ' → ' + t.docName);
-  addLog('email', '📧', 'İndirme e-postası gönderildi', (DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId) + ' ← İndirme linki');
-  document.getElementById('download-ticket-id').value = tid;
-  document.getElementById('download-token-display').textContent = t.docName + ' — Onaylandı ✓';
-  openModal('modal-download');
-  renderApproverTickets();
-  updateNavBadges();
-  toast('Onaylandı! İndirme hazır.', 'success');
-}
-function openRejectModal(tid) { currentRejectTicketId = tid; document.getElementById('reject-reason').value=''; openModal('modal-reject'); }
-function confirmReject() {
+function openRejectModal(tid) { currentRejectTicketId = tid; document.getElementById('reject-reason').value = ''; openModal('modal-reject'); }
+async function confirmReject() {
   const reason = document.getElementById('reject-reason').value.trim();
   if (!reason) { toast('Gerekçe zorunlu', 'error'); return; }
-  const t = DB.tickets.find(x=>x.id===currentRejectTicketId); if(!t) return;
-  t.status='rejected'; t.rejectReason=reason; t.resolved=new Date().toLocaleString('tr-TR');
-  addLog('reject', '❌', 'Bilet reddedildi', currentUser.email + ' → ' + t.docName);
-  addLog('email', '📧', 'Red bildirimi gönderildi', (DB.users.find(u=>u.id===t.requesterId)?.email||t.requesterId) + ' ← ' + reason.slice(0,50));
+  const resp = await apiFetch(`/tickets/${currentRejectTicketId}/reject`, {
+    method: 'PUT', body: JSON.stringify({ reason })
+  });
+  if (!resp.ok) { const e = await resp.json(); toast(e.error || 'Hata', 'error'); return; }
   closeModal('modal-reject');
-  renderApproverTickets();
-  document.getElementById('review-panel-col').innerHTML = `<div class="empty-state"><div class="empty-icon">✗</div><div class="empty-title">Reddedildi</div><div class="empty-sub">${reason}</div></div>`;
-  updateNavBadges();
   toast('Bilet reddedildi', 'error');
-}
-function simulateDownload() {
-  // Fallback for cases without ticket ID
-  addLog('download','⬇','Dosya indirildi', 'Token kullanıldı ve iptal edildi');
-  closeModal('modal-download'); toast('Dosya indirildi!', 'success');
+  document.getElementById('review-panel-col').innerHTML = `<div class="empty-state"><div class="empty-icon">✗</div><div class="empty-title">Reddedildi</div><div class="empty-sub">${reason}</div></div>`;
+  await renderApproverTickets();
 }
 
-function triggerDirectDownload(ticketId) {
-  const ticket = DB.tickets.find(t => t.id === ticketId);
-  if (!ticket) { toast('Bilet bulunamadı', 'error'); return; }
-
-  // If we have stored PDF blob bytes, download directly
-  if (ticket.pdfBlob) {
-    const url = URL.createObjectURL(ticket.pdfBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'edited_' + (ticket.docName || 'document.pdf');
-    a.click();
-    URL.revokeObjectURL(url);
-    addLog('download','⬇','Dosya indirildi', ticket.docName);
-    toast('Dosya indirildi!', 'success');
-    return;
-  }
-
-  // Fallback: if session still active, re-apply edits
-  if (ticket.sessionId) {
-    toast('PDF hazırlanıyor…', 'info');
-    const editPayload = ticket.editPayload || { edits: [] };
-    fetch(`${PDF_API}/apply/${ticket.sessionId}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(editPayload)
-    }).then(r => {
-      if (!r.ok) throw new Error('API yanıt vermedi');
-      return r.blob();
-    }).then(blob => {
-      ticket.pdfBlob = blob;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'edited_' + (ticket.docName || 'document.pdf');
-      a.click();
-      URL.revokeObjectURL(url);
-      addLog('download','⬇','Dosya indirildi', ticket.docName);
-      toast('Dosya indirildi!', 'success');
-    }).catch(() => toast('İndirme başarısız, oturum süresi dolmuş olabilir', 'error'));
-    return;
-  }
-
-  toast('İndirilebilir dosya bulunamadı', 'error');
-}
-
-function updateNavBadges() {
-  const pending = DB.tickets.filter(t=>t.status==='pending').length;
-  document.querySelectorAll('.nav-badge').forEach(b=>b.textContent=pending);
+async function updateNavBadges() {
+  try {
+    const resp = await apiFetch('/tickets');
+    const tickets = resp.ok ? await resp.json() : [];
+    const pending = tickets.filter(t => t.status === 'PENDING').length;
+    document.querySelectorAll('.nav-badge').forEach(b => b.textContent = pending);
+  } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════════
 // MY TICKETS (User)
 // ═══════════════════════════════════════════════════════════
-function renderMyTickets() {
+async function renderMyTickets(preloaded) {
   const tbody = document.getElementById('my-tickets-body');
   if (!tbody) return;
-  const myT = DB.tickets.filter(t => t.requesterId === (currentUser?.id||'u1'));
-  if (!myT.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Henüz talep yok</td></tr>'; return; }
-  tbody.innerHTML = myT.map(t => {
-    const approver = DB.approvers.find(a=>a.id===t.approverId);
+  let tickets = preloaded;
+  if (!tickets) {
+    const resp = await apiFetch('/tickets');
+    tickets = resp.ok ? await resp.json() : [];
+  }
+  if (!tickets.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Henüz talep yok</td></tr>';
+    return;
+  }
+  tbody.innerHTML = tickets.map(t => {
+    const changesArr = typeof t.changes === 'string' ? JSON.parse(t.changes||'[]') : (t.changes||[]);
     return `<tr>
-      <td><div style="font-weight:600">${t.docName}</div><div style="font-size:11px;color:var(--text3)">${t.changes.length} değişiklik</div></td>
-      <td>${approver?.name||t.approverId}</td>
+      <td><div style="font-weight:600">${t.file_name}</div><div style="font-size:11px;color:var(--text3)">${changesArr.length} değişiklik</div></td>
+      <td>${t.controller_email}</td>
       <td>${statusBadge(t.status)}</td>
-      <td class="text-xs c-text2">${t.created.split(' ')[0]||t.created}</td>
-      <td>${t.status==='approved'?`<button class="btn btn-success btn-sm" onclick="triggerDirectDownload('${t.id}')">⬇ İndir</button>`:t.status==='rejected'?`<span style="font-size:12px;color:var(--red)">${t.rejectReason||'Reddedildi'}</span>`:''}</td>
+      <td class="text-xs c-text2">${new Date(t.created_at).toLocaleDateString('tr-TR')}</td>
+      <td>${t.status==='APPROVED' ? `<button class="btn btn-success btn-sm" onclick="downloadTicket('${t.id}')">⬇ İndir</button>` : t.status==='REJECTED' ? `<span style="font-size:12px;color:var(--red)">${t.reject_reason||'Reddedildi'}</span>` : ''}</td>
     </tr>`;
   }).join('');
 }
-function openDownloadModal(tid) {
-  const t = DB.tickets.find(x=>x.id===tid); if(!t) return;
-  document.getElementById('download-ticket-id').value = tid;
-  document.getElementById('download-token-display').textContent = t.docName + ' — Onaylandı ✓';
-  openModal('modal-download');
+
+async function downloadTicket(ticketId) {
+  toast('PDF hazırlanıyor…', 'info');
+  try {
+    const resp = await apiFetch(`/tickets/${ticketId}/download`);
+    if (!resp.ok) { toast('İndirme başarısız', 'error'); return; }
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = 'onaylanan_belge.pdf'; a.click();
+    URL.revokeObjectURL(url);
+    toast('Dosya indirildi! ✓', 'success');
+  } catch(e) { toast('İndirme hatası: ' + e.message, 'error'); }
 }
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN PANEL
 // ═══════════════════════════════════════════════════════════
-function adminTab(tab, btn) {
-  document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));
+async function adminTab(tab, btn) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  document.querySelectorAll('.admin-section').forEach(s=>s.classList.remove('active'));
-  document.getElementById('as-'+tab).classList.add('active');
-  if(tab==='logs') renderLogs();
-  if(tab==='branding') previewBranding();
-  if(tab==='smtp') {
-    const hue = document.getElementById('hint-user-email');
-    const hae = document.getElementById('hint-admin-email');
-    if(hue) hue.value = DB.loginHints?.userEmail || 'kullanici@sirket.com';
-    if(hae) hae.value = DB.loginHints?.adminEmail || 'admin@sirket.com';
-  }
-  if(tab==='users') renderAssignmentsTable();
+  document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+  document.getElementById('as-' + tab).classList.add('active');
+  if (tab === 'logs')      renderLogs();
+  if (tab === 'branding')  previewBranding();
+  if (tab === 'smtp')      await loadSMTPSettings();
+  if (tab === 'users')     await renderAssignmentsTable();
+  if (tab === 'approvers') await renderApproversTable();
+}
+
+async function loadSMTPSettings() {
+  try {
+    const [smtpResp, hintsResp] = await Promise.all([
+      apiFetch('/admin/smtp'),
+      apiFetch('/admin/hints'),
+    ]);
+    if (smtpResp.ok) {
+      const s = await smtpResp.json();
+      const setVal = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+      setVal('as-smtp-host', s.host);
+      setVal('as-smtp-port', s.port || 587);
+      setVal('as-smtp-user', s.user);
+      setVal('as-smtp-pw',   s.pw);
+      setVal('as-smtp-from', s.from);
+      const sec = document.getElementById('as-smtp-sec'); if (sec && s.sec) sec.value = s.sec;
+      const togOtp   = document.getElementById('tog-otp');   if (togOtp)   togOtp.checked   = s.otp_enabled !== false;
+      const togNotif = document.getElementById('tog-notif'); if (togNotif) togNotif.checked = s.notif_enabled !== false;
+    }
+    if (hintsResp.ok) {
+      const h = await hintsResp.json();
+      const hue = document.getElementById('hint-user-email');
+      const hae = document.getElementById('hint-admin-email');
+      if (hue) hue.value = h.user_email  || 'kullanici@sirket.com';
+      if (hae) hae.value = h.admin_email || 'admin@sirket.com';
+    }
+  } catch(e) { console.warn('loadSMTPSettings error:', e); }
 }
 
 // ── BRANDING / LOGIN CUSTOMIZATION ──────────────────────────
@@ -2459,7 +2579,6 @@ function saveBranding() {
   // Rebuild login tabs
   rebuildLoginTabs();
 
-  addLog('branding','🎨','Giriş sayfası güncellendi', currentUser.email);
   toast('Giriş sayfası güncellendi! 🎨', 'success');
   previewBranding();
 }
@@ -2512,106 +2631,178 @@ function rebuildLoginTabs() {
   // reattach first active
   tabs.querySelector('.role-tab')?.classList.add('active');
 }
-function renderUsersTable() {
-  const tbody = document.getElementById('users-table-body'); if(!tbody) return;
-  tbody.innerHTML = DB.users.map(u => `<tr>
-    <td><div style="display:flex;align-items:center;gap:9px"><div class="avatar avatar-blue" style="width:28px;height:28px;font-size:11px">${u.email[0].toUpperCase()}</div>${u.email}</div></td>
-    <td><span class="badge ${u.role==='admin'?'badge-purple':'badge-primary'}">${u.role}</span></td>
-    <td><span class="badge ${u.active?'badge-green':'badge-gray'}">${u.active?'Aktif':'Pasif'}</span></td>
-    <td class="text-xs c-text2">${u.created}</td>
-    <td><button class="btn btn-ghost btn-sm" onclick="toggleUserActive('${u.id}')">Aç/Kapat</button></td>
+async function renderUsersTable() {
+  const tbody = document.getElementById('users-table-body'); if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Yükleniyor…</td></tr>';
+  const resp = await apiFetch('/users');
+  const users = resp.ok ? await resp.json() : [];
+  const regular = users.filter(u => u.role === 'USER');
+  if (!regular.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Henüz kullanıcı yok</td></tr>';
+    return;
+  }
+  tbody.innerHTML = regular.map(u => `<tr>
+    <td><div style="display:flex;align-items:center;gap:9px"><div class="avatar avatar-blue" style="width:28px;height:28px;font-size:11px">${u.email[0].toUpperCase()}</div><div><div style="font-weight:600">${u.email}</div><div style="font-size:11px;color:var(--text3)">${[u.name,u.surname].filter(Boolean).join(' ')}</div></div></div></td>
+    <td><span class="badge badge-primary">Kullanıcı</span></td>
+    <td><span class="badge ${u.active ? 'badge-green' : 'badge-gray'}">${u.active ? 'Aktif' : 'Pasif'}</span></td>
+    <td class="text-xs c-text2">${new Date(u.created_at).toLocaleDateString('tr-TR')}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="toggleUserActive('${u.id}',${u.active})">Aç/Kapat</button></td>
   </tr>`).join('');
 }
-function renderAssignmentsTable() {
-  const tbody = document.getElementById('assignments-table-body'); if(!tbody) return;
-  tbody.innerHTML = DB.users.filter(u=>u.role!=='admin').map(u => {
-    const opts = DB.approvers.map(a => `<option value="${a.id}" ${DB.userAssignments[u.id]===a.id?'selected':''}>${a.name}</option>`).join('');
-    const displayName = (u.name||u.email.split('@')[0]) + (u.surname ? ' ' + u.surname : '');
+
+async function renderAssignmentsTable() {
+  const tbody = document.getElementById('assignments-table-body'); if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;padding:20px;color:var(--text3)">Yükleniyor…</td></tr>';
+  const [usersResp, assignResp] = await Promise.all([apiFetch('/users'), apiFetch('/assignments')]);
+  const users       = usersResp.ok  ? await usersResp.json()  : [];
+  const assignMap   = assignResp.ok ? await assignResp.json() : {};
+  const regularUsers  = users.filter(u => u.role === 'USER');
+  const controllers   = users.filter(u => u.role === 'CONTROLLER');
+  if (!regularUsers.length) {
+    tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;padding:24px;color:var(--text3)">Henüz kullanıcı yok</td></tr>';
+    await renderUsersTable(); return;
+  }
+  tbody.innerHTML = regularUsers.map(u => {
+    const displayName = [u.name, u.surname].filter(Boolean).join(' ') || u.email.split('@')[0];
+    const selected = assignMap[u.id] || '';
+    const ctrlOpts = controllers.map(c => {
+      const name = [c.name, c.surname].filter(Boolean).join(' ') || c.email.split('@')[0];
+      return `<option value="${c.id}" ${selected === c.id ? 'selected' : ''}>${name}</option>`;
+    }).join('');
     return `<tr>
       <td><div style="font-weight:600;font-size:13px">${displayName}</div><div style="font-size:11px;color:var(--text3)">${u.email}</div></td>
       <td><select class="form-select" style="padding:6px 10px;font-size:13px" onchange="assignUserToController('${u.id}',this.value)">
-        <option value="">— Atama yok —</option>${opts}
+        <option value="">— Atama yok —</option>${ctrlOpts}
       </select></td>
     </tr>`;
   }).join('');
-}
-function assignUserToController(userId, approverId) {
-  if (approverId) DB.userAssignments[userId] = approverId;
-  else delete DB.userAssignments[userId];
-  toast('Atama kaydedildi', 'success');
+  await renderUsersTable();
 }
 
-function renderApproversTable() {
-  const tbody = document.getElementById('approvers-table-body'); if(!tbody) return;
-  tbody.innerHTML = DB.approvers.map(a => {
-    const pending  = DB.tickets.filter(t=>t.approverId===a.id&&t.status==='pending').length;
-    const approved = DB.tickets.filter(t=>t.approverId===a.id&&t.status==='approved').length;
+async function assignUserToController(userId, controllerId) {
+  const resp = await apiFetch('/assignments', {
+    method: 'PUT',
+    body: JSON.stringify({ user_id: userId, controller_id: controllerId || null })
+  });
+  if (resp.ok) toast('Atama kaydedildi', 'success');
+  else { const e = await resp.json(); toast(e.error || 'Hata', 'error'); }
+}
+
+async function renderApproversTable() {
+  const tbody = document.getElementById('approvers-table-body'); if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">Yükleniyor…</td></tr>';
+  const resp = await apiFetch('/users');
+  const users = resp.ok ? await resp.json() : [];
+  const controllers = users.filter(u => u.role === 'CONTROLLER');
+  if (!controllers.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3)">Henüz kontrollör yok</td></tr>';
+    return;
+  }
+  tbody.innerHTML = controllers.map(a => {
+    const displayName = [a.name, a.surname].filter(Boolean).join(' ') || a.email.split('@')[0];
+    const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     return `<tr>
-      <td><div style="display:flex;align-items:center;gap:9px"><div class="avatar avatar-green" style="width:28px;height:28px;font-size:11px">${a.name.split(' ').map(n=>n[0]).join('')}</div><div><div style="font-weight:600;font-size:13px">${a.name}</div><div style="font-size:11px;color:var(--text3)">${a.email}</div></div></div></td>
-      <td>${pending?`<span class="badge badge-amber">${pending}</span>`:'-'}</td>
-      <td>${approved?`<span class="badge badge-green">${approved}</span>`:'-'}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="removeApprover('${a.id}')">Sil</button></td>
+      <td><div style="display:flex;align-items:center;gap:9px"><div class="avatar avatar-green" style="width:28px;height:28px;font-size:11px">${initials}</div><div><div style="font-weight:600;font-size:13px">${displayName}</div><div style="font-size:11px;color:var(--text3)">${a.email}</div></div></div></td>
+      <td><span class="badge ${a.active ? 'badge-green' : 'badge-gray'}">${a.active ? 'Aktif' : 'Pasif'}</span></td>
+      <td>${new Date(a.created_at).toLocaleDateString('tr-TR')}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${a.id}')">Sil</button></td>
     </tr>`;
   }).join('');
 }
+
 function openAddUserModal(role) {
-  pendingAddUserRole=role;
-  document.getElementById('adduser-title').textContent=role==='approver'?'Kontrollör Ekle':'Kullanıcı Ekle';
-  document.getElementById('adduser-email').value='';
-  document.getElementById('adduser-name').value='';
-  document.getElementById('adduser-surname').value='';
+  pendingAddUserRole = role;
+  document.getElementById('adduser-title').textContent = role === 'approver' ? 'Kontrollör Ekle' : 'Kullanıcı Ekle';
+  document.getElementById('adduser-email').value   = '';
+  document.getElementById('adduser-name').value    = '';
+  document.getElementById('adduser-surname').value = '';
   openModal('modal-adduser');
 }
-function saveNewUser() {
-  const email = document.getElementById('adduser-email').value.trim();
-  const name = document.getElementById('adduser-name').value.trim();
+
+async function saveNewUser() {
+  const email   = document.getElementById('adduser-email').value.trim();
+  const name    = document.getElementById('adduser-name').value.trim();
   const surname = document.getElementById('adduser-surname').value.trim();
   if (!email) { toast('E-posta girin', 'error'); return; }
-  const id = 'u'+Date.now();
-  const created = new Date().toISOString().split('T')[0];
-  if (pendingAddUserRole === 'approver') {
-    DB.approvers.push({id, email, role:'approver', name: name || email.split('@')[0], surname: surname, dept:'', active:true});
-    renderApproversTable(); renderApproversPanel();
-  } else {
-    DB.users.push({id, email, name, surname, role:'user', active:true, created});
-    renderUsersTable();
-  }
-  addLog('email','📧','Davet e-postası gönderildi',email);
-  document.getElementById('adduser-name').value='';
-  document.getElementById('adduser-surname').value='';
-  closeModal('modal-adduser'); toast(email+' eklendi', 'success');
+  const role = pendingAddUserRole === 'approver' ? 'CONTROLLER' : 'USER';
+  const btn = document.getElementById('adduser-btn');
+  if (btn) btn.disabled = true;
+  const resp = await apiFetch('/users', { method: 'POST', body: JSON.stringify({ email, name, surname, role }) });
+  if (btn) btn.disabled = false;
+  if (!resp.ok) { const e = await resp.json(); toast(e.error || 'Kullanıcı eklenemedi', 'error'); return; }
+  closeModal('modal-adduser');
+  toast(email + ' eklendi ✓', 'success');
+  if (role === 'CONTROLLER') { _controllers = []; await renderApproversTable(); }
+  else await renderAssignmentsTable();
 }
-function toggleUserActive(id) { const u=DB.users.find(x=>x.id===id); if(u){u.active=!u.active; renderUsersTable(); toast('Durum güncellendi','success');} }
-function removeApprover(id) { if(confirm('Kontrollörü silmek istediğinize emin misiniz?')){DB.approvers=DB.approvers.filter(a=>a.id!==id); renderApproversTable(); toast('Kontrollör silindi','success');} }
-function saveSMTP() { DB.smtp.host=document.getElementById('as-smtp-host').value; toast('SMTP ayarları kaydedildi','success'); addLog('email','⚙️','SMTP ayarları güncellendi',currentUser.email); }
-function saveLoginHints() {
-  DB.loginHints.userEmail = document.getElementById('hint-user-email').value.trim() || 'kullanici@sirket.com';
-  DB.loginHints.adminEmail = document.getElementById('hint-admin-email').value.trim() || 'admin@sirket.com';
-  toast('Örnek adresler kaydedildi', 'success');
-}
-function testSMTP() { toast('Test e-postası gönderildi: '+DB.smtp.from,'info'); addLog('email','📧','Test e-postası gönderildi',DB.smtp.from+' → '+currentUser.email); }
 
-function renderLogs() {
+async function toggleUserActive(id, currentActive) {
+  const resp = await apiFetch(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ active: !currentActive }) });
+  if (resp.ok) { toast('Durum güncellendi', 'success'); await renderUsersTable(); }
+  else { const e = await resp.json(); toast(e.error || 'Hata', 'error'); }
+}
+
+async function deleteUser(id) {
+  if (!confirm('Bu kullanıcıyı silmek istediğinize emin misiniz?')) return;
+  const resp = await apiFetch(`/users/${id}`, { method: 'DELETE' });
+  if (resp.ok) { toast('Kullanıcı silindi', 'success'); _controllers = []; await renderApproversTable(); }
+  else { const e = await resp.json(); toast(e.error || 'Hata', 'error'); }
+}
+
+async function saveSMTP() {
+  const body = {
+    host:          document.getElementById('as-smtp-host').value.trim(),
+    port:          parseInt(document.getElementById('as-smtp-port').value) || 587,
+    sec:           document.getElementById('as-smtp-sec').value,
+    user:          document.getElementById('as-smtp-user').value.trim(),
+    pw:            document.getElementById('as-smtp-pw').value,
+    from:          document.getElementById('as-smtp-from').value.trim(),
+    otp_enabled:   document.getElementById('tog-otp').checked,
+    notif_enabled: document.getElementById('tog-notif').checked,
+  };
+  const resp = await apiFetch('/admin/smtp', { method: 'PUT', body: JSON.stringify(body) });
+  if (resp.ok) toast('SMTP ayarları kaydedildi ✓', 'success');
+  else { const e = await resp.json(); toast(e.error || 'Kaydetme başarısız', 'error'); }
+}
+
+async function saveLoginHints() {
+  const body = {
+    user_email:  document.getElementById('hint-user-email').value.trim()  || 'kullanici@sirket.com',
+    admin_email: document.getElementById('hint-admin-email').value.trim() || 'admin@sirket.com',
+  };
+  const resp = await apiFetch('/admin/hints', { method: 'PUT', body: JSON.stringify(body) });
+  if (resp.ok) toast('Örnek adresler kaydedildi ✓', 'success');
+  else { const e = await resp.json(); toast(e.error || 'Hata', 'error'); }
+}
+
+async function testSMTP() {
+  toast('Test e-postası gönderiliyor…', 'info');
+  const resp = await apiFetch('/admin/smtp/test', { method: 'POST' });
+  if (resp.ok) toast('Test e-postası gönderildi ✓', 'success');
+  else { const e = await resp.json(); toast(e.error || 'Test başarısız — SMTP ayarlarını kontrol edin', 'error'); }
+}
+
+async function renderLogs() {
   const filter = document.getElementById('log-filter')?.value || 'all';
-  const logs = filter==='all' ? DB.logs : DB.logs.filter(l=>l.type===filter);
   const container = document.getElementById('logs-container');
-  if(!container) return;
-  if(!logs.length){container.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Log bulunamadı</div></div>';return;}
-  container.innerHTML = logs.map(l=>`
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text3)">Yükleniyor…</div>';
+  const url = filter === 'all' ? '/admin/logs' : `/admin/logs?type=${filter}`;
+  const resp = await apiFetch(url);
+  const logs = resp.ok ? await resp.json() : [];
+  if (!logs.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Log bulunamadı</div></div>';
+    return;
+  }
+  container.innerHTML = logs.map(l => `
     <div class="log-item">
       <div class="log-icon">${l.icon}</div>
       <div style="flex:1">
         <div class="log-msg" style="font-weight:600">${l.msg}</div>
-        <div class="log-detail">${l.detail}</div>
+        <div class="log-detail">${l.detail || l.user_email || ''}</div>
       </div>
-      <div class="log-time">${l.time}</div>
+      <div class="log-time">${new Date(l.created_at).toLocaleString('tr-TR')}</div>
     </div>`).join('');
-}
-function addLog(type, icon, msg, detail) {
-  DB.logs.unshift({ type, icon, msg, detail, time: new Date().toLocaleString('tr-TR') });
-  if(document.getElementById('as-logs')?.classList.contains('active')) renderLogs();
-  const actEl = document.getElementById('dash-activity');
-  if(actEl) actEl.innerHTML = DB.logs.slice(0,6).map(l=>`<div class="log-item"><div class="log-icon">${l.icon}</div><div><div class="log-msg">${l.msg}</div><div class="log-detail">${l.detail}</div><div class="log-time">${l.time}</div></div></div>`).join('');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2643,6 +2834,21 @@ function hexRgba(hex, a) {
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
   return `rgba(${r},${g},${b},${a})`;
 }
+
+// ── APP STARTUP: check setup status via API ─────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const resp = await fetch(`${API}/admin/setup-status`);
+    if (resp.ok) {
+      const data = await resp.json();
+      showScreen(data.done ? 'login' : 'setup');
+    } else {
+      showScreen('setup');
+    }
+  } catch(e) {
+    showScreen('setup');
+  }
+});
 
 // Drag & drop on upload zone
 document.addEventListener('DOMContentLoaded', () => {
@@ -2801,6 +3007,7 @@ document.addEventListener('keydown', e=>{
           <div class="form-hint">Giriş için tek kullanımlık kod gönderilecek</div>
         </div>
         <button class="btn btn-primary btn-block" id="otp-send-btn" onclick="sendOTP()">OTP Gönder</button>
+        <button class="btn btn-ghost btn-block btn-sm" style="margin-top:9px;color:var(--text3)" onclick="showLoginFlow('backup')">🔑 Yedek kod ile giriş yap</button>
       </div>
       <div id="login-otp-step" style="display:none">
         <div style="text-align:center;margin-bottom:8px">
@@ -2820,6 +3027,25 @@ document.addEventListener('keydown', e=>{
         <button class="btn btn-primary btn-block" onclick="verifyOTP()">Giriş Yap</button>
         <button class="btn btn-ghost btn-block" style="margin-top:9px" onclick="resetOTPStep()">← E-posta değiştir</button>
       </div>
+    </div>
+
+    <!-- Backup code flow -->
+    <div id="login-backup-section" style="display:none">
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:14px;color:var(--text2)">E-postanıza erişiminiz yoksa yedek kod kullanın</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">E-posta</label>
+        <input class="form-input" type="email" id="backup-email" placeholder="ornek@sirket.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Yedek Kod (8 karakter)</label>
+        <input class="form-input" id="backup-code" placeholder="ABCD1234" maxlength="8"
+               style="font-family:'JetBrains Mono',monospace;letter-spacing:3px;font-size:18px;text-align:center"
+               oninput="this.value=this.value.toUpperCase()">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="verifyBackupCode()">Yedek Kod ile Giriş</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:9px" onclick="showLoginFlow('otp')">← OTP ile Giriş</button>
     </div>
 
     <!-- Admin password flow -->
@@ -2917,12 +3143,6 @@ document.addEventListener('keydown', e=>{
               <div class="drop-zone-icon" style="pointer-events:none">📄</div>
               <div class="drop-zone-title" style="pointer-events:none">PDF Yükle veya Sürükle</div>
               <div class="drop-zone-sub" style="pointer-events:none">Maks 200 MB · Tüm PDF sürümleri desteklenir</div>
-            </div>
-            <div style="margin-top:20px;color:var(--text3);font-size:13px">— veya örnek belge seç —</div>
-            <div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
-              <button class="btn btn-ghost btn-sm" onclick="loadDemoDoc('sozlesme')">📑 Sözleşme Örneği</button>
-              <button class="btn btn-ghost btn-sm" onclick="loadDemoDoc('rapor')">📊 Rapor Örneği</button>
-              <button class="btn btn-ghost btn-sm" onclick="loadDemoDoc('fatura')">🧾 Fatura Örneği</button>
             </div>
           </div>
         </div>
@@ -3067,6 +3287,9 @@ document.addEventListener('keydown', e=>{
             <div class="section-title">🔧 Admin Paneli</div>
             <div class="section-sub">Sistem yönetimi</div>
           </div>
+          <div id="disk-usage-info" style="font-size:12px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 12px;display:flex;align-items:center;gap:6px">
+            <span>💾 Disk:</span><span id="disk-usage-text">—</span>
+          </div>
         </div>
         <div class="admin-tabs">
           <button class="admin-tab active" onclick="adminTab('users',this)">👥 Kullanıcılar</button>
@@ -3108,7 +3331,7 @@ document.addEventListener('keydown', e=>{
           <div class="card">
             <div class="card-body" style="padding:0">
               <table class="data-table">
-                <thead><tr><th>E-posta</th><th>Bekleyen</th><th>Onaylanan</th><th>İşlem</th></tr></thead>
+                <thead><tr><th>E-posta / Ad</th><th>Durum</th><th>Eklenme</th><th>İşlem</th></tr></thead>
                 <tbody id="approvers-table-body"></tbody>
               </table>
             </div>
