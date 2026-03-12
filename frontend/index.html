@@ -1075,6 +1075,8 @@ function buildNav(role) {
   nav.innerHTML = items.map(it =>
     `<button class="nav-item" data-panel="${it.panel}" onclick="showPanel('${it.panel}')">${it.label}</button>`
   ).join('');
+  // Stirling-PDF araçları — tüm roller için yeni sekmede açılır
+  nav.innerHTML += `<a class="nav-item" href="/stirling/" target="_blank" rel="noopener" title="Stirling PDF Araçları">🛠️ PDF Araçları</a>`;
   document.querySelector(`.nav-item[data-panel="dashboard"]`)?.classList.add('active');
 }
 

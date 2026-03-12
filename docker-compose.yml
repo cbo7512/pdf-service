@@ -66,9 +66,13 @@ services:
     image: stirlingtools/stirling-pdf:latest
     container_name: docflow-stirling
     environment:
-      DOCKER_ENABLE_SECURITY: "false"
+      DOCKER_ENABLE_SECURITY:      "false"   # Giriş zorunluluğunu kapat (2.x doğru değişken)
+      DISABLE_ADDITIONAL_FEATURES: "true"    # Lisans gerektiren proprietary özellikleri kapat
+      CONTEXT_PATH:                "/stirling"
+      SYSTEM_ROOTURIPATH:          "/stirling"
     volumes:
       - stirling_data:/usr/share/StirlingPDF
+      - stirling_configs:/configs
     restart: unless-stopped
     networks:
       - docflow-net
@@ -104,6 +108,8 @@ volumes:
     name: docflow_pdf_sessions
   stirling_data:
     name: docflow_stirling
+  stirling_configs:
+    name: docflow_stirling_configs
 
 # ─── Network ──────────────────────────────────────────────────
 networks:
