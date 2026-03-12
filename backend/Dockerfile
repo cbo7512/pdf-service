@@ -3,9 +3,13 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
-# Copy all source files and build
+# Copy all source files
 COPY . .
-RUN GONOSUMDB='*' GOPROXY='direct' CGO_ENABLED=0 GOOS=linux go build -mod=mod -ldflags="-w -s" -o docflow-api ./main.go
+
+# Use default GOPROXY (proxy.golang.org) — reliable in Docker environments
+# go mod tidy generates go.sum from scratch, then build
+RUN go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o docflow-api ./main.go
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM alpine:3.20
