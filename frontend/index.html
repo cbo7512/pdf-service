@@ -840,7 +840,7 @@ function showPanel(id) {
   if (id === 'tickets')   renderApproverTickets();
   if (id === 'admin')     { loadDiskUsage(); renderAssignmentsTable(); }
   if (id === 'dashboard') renderDashboard();
-  if (id === 'editor')    renderApproversPanel();
+  if (id === 'editor')    loadControllersDropdown();
 }
 
 async function loadDiskUsage() {
@@ -1075,8 +1075,6 @@ function buildNav(role) {
   nav.innerHTML = items.map(it =>
     `<button class="nav-item" data-panel="${it.panel}" onclick="showPanel('${it.panel}')">${it.label}</button>`
   ).join('');
-  // Stirling-PDF araçları — tüm roller için yeni sekmede açılır
-  nav.innerHTML += `<a class="nav-item" href="/stirling/" target="_blank" rel="noopener" title="Stirling PDF Araçları">🛠️ PDF Araçları</a>`;
   document.querySelector(`.nav-item[data-panel="dashboard"]`)?.classList.add('active');
 }
 
@@ -1196,70 +1194,189 @@ function statusBadge(s) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// PDF EDITOR
+// PDF EDITOR — Stirling PDF Entegrasyonu
 // ═══════════════════════════════════════════════════════════
+
 async function loadEditorPDF(input) {
-  const file = input.files[0]; if (!file) return;
+  const file = input.files?.[0] || (Array.isArray(input.files) ? input.files[0] : null);
+  if (!file) return;
+  // Reset so same file can be re-selected next time
+  if (input.value !== undefined) input.value = '';
+
+  const dropZone = document.getElementById('main-drop');
+  dropZone.innerHTML = '<div style="padding:24px;color:var(--text2);font-size:14px">⏳ PDF yükleniyor ve TASLAK filigranı ekleniyor…</div>';
+
   try {
-    // ── 1. Upload to PDF service for rendering ─────────────
-    const fd1 = new FormData();
-    fd1.append('file', file);
-    let apiOk = false;
-    try {
-      const resp = await fetch(`${PDF_API}/upload`, { method: 'POST', body: fd1 });
-      if (resp.ok) {
-        const data = await resp.json();
-        pdfSessionId = data.session_id;
-        totalPages   = data.pages;
-        apiOk = true;
-      }
-    } catch(apiErr) {
-      console.warn('PDF API not reachable, falling back to pdf.js:', apiErr.message);
+    // Upload to backend — backend applies watermark via Stirling API
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await apiFetch('/files/upload', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || 'Yükleme başarısız');
     }
-
-    // ── 2. Fallback to pdf.js if API unavailable ───────────
-    if (!apiOk) {
-      const buf = await file.arrayBuffer();
-      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
-      totalPages = pdfDoc.numPages;
-    }
-
-    // ── 3. Upload to backend API for persistence ───────────
-    currentFileId = null;
-    try {
-      const fd2 = new FormData();
-      fd2.append('file', file);
-      if (pdfSessionId) fd2.append('pdf_session_id', pdfSessionId);
-      const backendResp = await apiFetch('/files/upload', { method: 'POST', body: fd2 });
-      if (backendResp.ok) {
-        const fileData = await backendResp.json();
-        currentFileId = fileData.id;
-      } else {
-        console.warn('Backend file upload failed');
-      }
-    } catch(e) { console.warn('Backend upload error:', e.message); }
-
-    currentPage    = 1;
+    const fileData = await resp.json();
+    currentFileId  = fileData.id;
     currentDocName = file.name;
-    Object.keys(pageEdits).forEach(k => delete pageEdits[k]);
-    editHistory.length = 0;
 
+    // Show editor state (Stirling iframe)
     document.getElementById('editor-upload-state').style.display = 'none';
-    document.getElementById('editor-active-state').style.display = 'flex';
+    const activeState = document.getElementById('editor-active-state');
+    activeState.style.display = 'flex';
     document.getElementById('doc-name-display').textContent = file.name;
-    document.getElementById('doc-page-count').textContent = totalPages + ' sayfa';
 
-    setTimeout(initClickCapture, 100);
-    await renderPDFPage(currentPage);
-    buildPDFThumbs();
-    renderApproversPanel();
-    changes = [];
-    renderChangesPanel();
-    toast(file.name + (pdfSessionId ? ' yüklendi (API)' : ' yüklendi'), 'success');
+    // Populate controller dropdown
+    await loadControllersDropdown();
+
+    // Inject watermarked PDF into Stirling iframe
+    injectFileIntoStirling(fileData.id, file.name);
+
+    toast(file.name + ' yüklendi — TASLAK filigranı uygulandı ✅', 'success');
   } catch(err) {
-    console.error('PDF load error:', err);
+    // Restore drop-zone on error
+    dropZone.innerHTML = `
+      <div class="drop-zone-icon" style="pointer-events:none">📄</div>
+      <div class="drop-zone-title" style="pointer-events:none">PDF Yükle veya Sürükle</div>
+      <div class="drop-zone-sub" style="pointer-events:none">Maks 200 MB · Otomatik TASLAK filigranı uygulanır</div>`;
     toast('PDF yüklenemedi: ' + err.message, 'error');
+    console.error('loadEditorPDF error:', err);
   }
+}
+
+// Loads watermarked PDF from backend and injects it into the Stirling iframe
+async function injectFileIntoStirling(fileId, filename) {
+  let pdfFile;
+  try {
+    const r = await apiFetch('/files/' + fileId + '/content');
+    if (!r.ok) { console.warn('serveFile failed:', r.status); return; }
+    const blob = await r.blob();
+    pdfFile = new File([blob], filename, { type: 'application/pdf' });
+  } catch(e) { console.warn('injectFileIntoStirling fetch error:', e); return; }
+
+  const iframe = document.getElementById('stirling-frame');
+
+  function tryInject() {
+    try {
+      const iDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!iDoc || iDoc.readyState !== 'complete') { setTimeout(tryInject, 500); return; }
+
+      // Stirling may have multiple file inputs; grab the first visible one
+      const inputs = iDoc.querySelectorAll('input[type="file"]');
+      if (!inputs.length) { setTimeout(tryInject, 500); return; }
+
+      const dt = new DataTransfer();
+      dt.items.add(pdfFile);
+
+      // Try each file input
+      let injected = false;
+      inputs.forEach(inp => {
+        try {
+          Object.defineProperty(inp, 'files', { value: dt.files, configurable: true });
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+          inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          injected = true;
+        } catch(_) {}
+      });
+
+      // Also try drag-drop on common Stirling drop zones
+      const dropSelectors = [
+        '#fileInput-container', '.custom-file-chooser',
+        '.drop-zone-card', '[id$="-container"]', 'form .mb-3'
+      ];
+      for (const sel of dropSelectors) {
+        const zone = iDoc.querySelector(sel);
+        if (zone) {
+          try {
+            zone.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: dt }));
+            zone.dispatchEvent(new DragEvent('dragover',  { bubbles: true, dataTransfer: dt, cancelable: true }));
+            zone.dispatchEvent(new DragEvent('drop',      { bubbles: true, dataTransfer: dt, cancelable: true }));
+          } catch(_) {}
+          break;
+        }
+      }
+
+      if (!injected) { setTimeout(tryInject, 600); }
+    } catch(e) {
+      // Cross-origin or not-ready yet — retry
+      setTimeout(tryInject, 600);
+    }
+  }
+
+  // Trigger inject after every iframe load (Stirling navigates internally)
+  iframe.addEventListener('load', () => setTimeout(tryInject, 400));
+  // Also try immediately (iframe might already be loaded)
+  setTimeout(tryInject, 600);
+}
+
+// Populates #controller-select with available controllers
+async function loadControllersDropdown() {
+  const sel = document.getElementById('controller-select');
+  if (!sel) return;
+  try {
+    const resp = await apiFetch('/controllers');
+    if (!resp.ok) return;
+    const list = await resp.json();
+    _controllers = list || [];
+    sel.innerHTML = '<option value="">-- Kontrollör Seç --</option>' +
+      _controllers.map(c => {
+        const label = [c.name, c.surname].filter(Boolean).join(' ') || c.email;
+        return `<option value="${c.id}">${label}</option>`;
+      }).join('');
+    // Auto-select if only one controller is available
+    if (_controllers.length === 1) sel.value = _controllers[0].id;
+  } catch(e) { console.warn('loadControllersDropdown error:', e); }
+}
+
+// Sends the uploaded (watermarked) PDF for approval
+async function submitStirlingApproval() {
+  const sel = document.getElementById('controller-select');
+  const controllerId = sel?.value;
+  if (!controllerId) { toast('Lütfen bir kontrollör seçin', 'error'); return; }
+  if (!currentFileId) { toast('Önce PDF yükleyin', 'error'); return; }
+
+  const note = (document.getElementById('approval-note')?.value || '').trim();
+  const body = {
+    file_id:       currentFileId,
+    controller_id: controllerId,
+    changes:       [],
+    edit_payload:  {},
+    note:          note,
+  };
+
+  try {
+    const resp = await apiFetch('/tickets', { method: 'POST', body: JSON.stringify(body) });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      toast(err.error || 'Onay talebi gönderilemedi', 'error');
+      return;
+    }
+    toast('Onay talebi gönderildi! 📨', 'success');
+    resetEditor();
+    showPanel('mytickets');
+  } catch(e) {
+    toast('Sunucuya bağlanılamadı', 'error');
+  }
+}
+
+// Resets the editor panel back to the upload state
+function resetEditor() {
+  currentFileId  = null;
+  currentDocName = '';
+  document.getElementById('editor-upload-state').style.display = 'flex';
+  document.getElementById('editor-active-state').style.display = 'none';
+  const dz = document.getElementById('main-drop');
+  if (dz) dz.innerHTML = `
+    <div class="drop-zone-icon" style="pointer-events:none">📄</div>
+    <div class="drop-zone-title" style="pointer-events:none">PDF Yükle veya Sürükle</div>
+    <div class="drop-zone-sub" style="pointer-events:none">Maks 200 MB · Otomatik TASLAK filigranı uygulanır</div>`;
+  // Navigate Stirling back to home
+  const iframe = document.getElementById('stirling-frame');
+  if (iframe) iframe.src = '/stirling/';
+  // Clear controller select and note
+  const sel = document.getElementById('controller-select');
+  if (sel) sel.value = '';
+  const note = document.getElementById('approval-note');
+  if (note) note.value = '';
 }
 
 async function renderPDFPage(pageNum) {
@@ -2007,49 +2124,31 @@ function setTool(t) {
 
 // ── ANNOTATIONS ─────────────────────────────────────────────
 const getWrap = () => document.getElementById('pdf-page-wrap');
+// ── Editor upload zone drag-drop support ───────────────────
 document.addEventListener('DOMContentLoaded', () => {
-document.getElementById('pdf-page-wrap').addEventListener('click', e => {
-  if (!document.getElementById('editor-active-state').style.display || document.getElementById('editor-active-state').style.display === 'none') return;
-  if (e.target.closest('#text-layer') && (currentTool==='edit'||currentTool==='select')) return;
-  if (e.target.closest('.edit-block') || e.target.closest('.annot')) return;
-  if (currentTool === 'rect') return;
-  const r = getWrap().getBoundingClientRect();
-  const x = e.clientX - r.left, y = e.clientY - r.top;
-  if (currentTool === 'newtext') addAnnotText(x, y);
-  else if (currentTool === 'hl') addAnnotHL(x, y);
-});
-
-document.getElementById('pdf-page-wrap').addEventListener('mousedown', e => {
-  if (currentTool !== 'rect') return;
-  if (e.target.closest('.annot')||e.target.closest('.edit-block')) return;
-  isDrawing = true;
-  const r = getWrap().getBoundingClientRect();
-  drawStart = { x: e.clientX-r.left, y: e.clientY-r.top };
-  rectEl = document.createElement('div');
-  rectEl.className = 'annot';
-  rectEl.style.cssText = `left:${drawStart.x}px;top:${drawStart.y}px;width:0;height:0;`;
-  rectEl.innerHTML = `<div class="annot-rect-inner" style="border-color:${currentColor}"></div><div class="annot-del" onclick="delAnnot(this)">×</div>`;
-  document.getElementById('annot-layer').appendChild(rectEl);
-});
-document.addEventListener('mousemove', e => {
-  if (!isDrawing||!rectEl) return;
-  const r = getWrap().getBoundingClientRect();
-  const x=e.clientX-r.left, y=e.clientY-r.top;
-  const w=x-drawStart.x, h=y-drawStart.y;
-  rectEl.style.width=Math.abs(w)+'px'; rectEl.style.height=Math.abs(h)+'px';
-  if(w<0) rectEl.style.left=(drawStart.x+w)+'px';
-  if(h<0) rectEl.style.top=(drawStart.y+h)+'px';
-});
-document.addEventListener('mouseup', () => {
-  if (!isDrawing) return; isDrawing=false;
-  if (rectEl) {
-    const w=parseInt(rectEl.style.width),h=parseInt(rectEl.style.height);
-    if(w<5||h<5){rectEl.remove();}
-    else { makeDraggable(rectEl); const id=addChange('rect','Dikdörtgen çizildi'); rectEl.dataset.chid=id; }
-    rectEl=null;
-  }
-});
-}); // end DOMContentLoaded
+  const dropZone = document.getElementById('main-drop');
+  if (!dropZone) return;
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--primary)';
+    dropZone.style.background  = 'var(--primary-ghost, rgba(37,99,235,.06))';
+  });
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.style.borderColor = '';
+    dropZone.style.background  = '';
+  });
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.style.borderColor = '';
+    dropZone.style.background  = '';
+    const f = e.dataTransfer?.files?.[0];
+    if (f && f.name.toLowerCase().endsWith('.pdf')) {
+      loadEditorPDF({ files: [f] });
+    } else if (f) {
+      toast('Sadece PDF dosyaları desteklenir', 'error');
+    }
+  });
+}); // end DOMContentLoaded — editor drag-drop
 
 function addAnnotText(x, y) {
   const w = document.createElement('div'); w.className='annot'; w.style.cssText=`left:${x}px;top:${y}px;`;
@@ -2852,20 +2951,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// Drag & drop on upload zone
-document.addEventListener('DOMContentLoaded', () => {
-  const dz = document.getElementById('main-drop');
-  if (dz) {
-    dz.addEventListener('dragover', e=>{e.preventDefault();e.stopPropagation();dz.classList.add('over');});
-    dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
-    dz.addEventListener('drop', e=>{
-      e.preventDefault(); e.stopPropagation(); dz.classList.remove('over');
-      const f=e.dataTransfer.files[0];
-      if(f?.type==='application/pdf') loadEditorPDF({files:[f]});
-      else if(f) toast('Lütfen bir PDF dosyası seçin', 'error');
-    });
-  }
-});
+// Drag & drop on upload zone handled above in editor section
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e=>{
@@ -3135,8 +3221,9 @@ document.addEventListener('keydown', e=>{
         </div>
       </div>
 
-      <!-- ── PANEL: PDF EDITOR ── -->
-      <div class="panel" id="panel-editor" style="margin:-28px;height:calc(100vh - 58px)">
+      <!-- ── PANEL: PDF EDITOR (Stirling) ── -->
+      <div class="panel" id="panel-editor" style="margin:-28px;height:calc(100vh - 58px);display:flex;flex-direction:column">
+
         <!-- UPLOAD state -->
         <div id="editor-upload-state" style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;width:100%">
           <div style="max-width:520px;width:100%;text-align:center">
@@ -3144,104 +3231,28 @@ document.addEventListener('keydown', e=>{
             <div class="drop-zone" id="main-drop" onclick="document.getElementById('pdf-file-input').click()">
               <div class="drop-zone-icon" style="pointer-events:none">📄</div>
               <div class="drop-zone-title" style="pointer-events:none">PDF Yükle veya Sürükle</div>
-              <div class="drop-zone-sub" style="pointer-events:none">Maks 200 MB · Tüm PDF sürümleri desteklenir</div>
+              <div class="drop-zone-sub" style="pointer-events:none">Maks 200 MB · Otomatik TASLAK filigranı uygulanır</div>
             </div>
           </div>
         </div>
 
-        <!-- EDITOR state -->
-        <div id="editor-active-state" style="display:none;width:100%;height:100%">
-          <div class="editor-layout" style="height:100%">
-            <!-- LEFT: page thumbnails -->
-            <div class="editor-left">
-              <div class="editor-toolbar" style="height:48px;flex-shrink:0">
-                <span style="font-size:13px;font-weight:700;color:var(--text)" id="doc-name-display">belge.pdf</span>
-                <span style="margin-left:auto;font-size:12px;color:var(--text3)" id="doc-page-count"></span>
-              </div>
-              <div class="editor-pages">
-                <div class="editor-pages-title">Sayfalar</div>
-                <div id="page-thumbs"></div>
-              </div>
-            </div>
-
-            <!-- CENTER: canvas + toolbar -->
-            <div class="editor-left" style="border-right:none;flex:1">
-              <!-- Toolbar -->
-              <div class="editor-toolbar" style="height:48px;flex-shrink:0">
-                <div class="tool-group">
-                  <button class="tool-btn active" id="tsel" onclick="setTool('select')" title="Seç">↖<div class="ttip">Seç (V)</div></button>
-                  <button class="tool-btn" id="tedit" onclick="setTool('edit')"><b style="font-size:13px">A</b><div class="ttip">Metni Düzenle (E)</div></button>
-                </div>
-                <div class="tool-sep"></div>
-                <div class="tool-group">
-                  <button class="tool-btn" id="tnewtext" onclick="setTool('newtext')">T+<div class="ttip">Yeni Metin (T)</div></button>
-                  <button class="tool-btn" id="thl" onclick="setTool('hl')">🖊<div class="ttip">Vurgulama (H)</div></button>
-                  <button class="tool-btn" id="trect" onclick="setTool('rect')">▭<div class="ttip">Dikdörtgen (R)</div></button>
-                </div>
-                <div class="tool-sep"></div>
-                <div class="tool-group">
-                  <button class="tool-btn" onclick="changePage(-1)">↑<div class="ttip">Önceki Sayfa</div></button>
-                  <span id="page-label" style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);min-width:52px;text-align:center">1/1</span>
-                  <button class="tool-btn" onclick="changePage(1)">↓<div class="ttip">Sonraki Sayfa</div></button>
-                </div>
-                <div class="tool-sep"></div>
-                <div class="tool-group">
-                  <button class="tool-btn" onclick="changeZoom(-0.15)">−<div class="ttip">Uzaklaştır</div></button>
-                  <span id="zoom-label" style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);min-width:46px;text-align:center">100%</span>
-                  <button class="tool-btn" onclick="changeZoom(0.15)">+<div class="ttip">Yakınlaştır</div></button>
-                </div>
-                <div class="tool-sep"></div>
-                <div class="tool-group">
-                  <button class="tool-btn" onclick="undoLastEdit()" id="undo-btn" title="Geri Al" style="opacity:.4" disabled>↩<div class="ttip">Geri Al (Ctrl+Z)</div></button>
-                </div>
-                <div class="tool-sep"></div>
-                <!-- Color picks -->
-                <div style="display:flex;gap:5px;align-items:center">
-                  <div class="cpick sel" style="width:20px;height:20px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#2563eb" onclick="setColor(this)" title="Mavi"></div>
-                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#dc2626" onclick="setColor(this)" title="Kırmızı"></div>
-                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#16a34a;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#16a34a" onclick="setColor(this)" title="Yeşil"></div>
-                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .15s" data-c="#d97706" onclick="setColor(this)" title="Amber"></div>
-                  <div class="cpick" style="width:20px;height:20px;border-radius:50%;background:#111;cursor:pointer;border:2px solid transparent;transition:transform .15s;border:1px solid #ddd" data-c="#111111" onclick="setColor(this)" title="Siyah"></div>
-                </div>
-              </div>
-
-              <!-- Canvas -->
-              <div class="editor-canvas" id="editor-canvas-area">
-                <div class="pdf-page-wrap" id="pdf-page-wrap">
-                  <canvas id="main-canvas"></canvas>
-                  <div id="text-layer"></div>
-                  <div id="edit-layer"></div>
-                  <div id="annot-layer"></div><div id="click-capture"></div>
-                  <div class="watermark-overlay"><div class="watermark-text">TASLAK</div></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- RIGHT: changes + approvers -->
-            <div class="editor-right">
-              <div class="er-tabs">
-                <button class="er-tab active" onclick="erTab('changes',this)">Değişiklikler</button>
-                <button class="er-tab" onclick="erTab('approvers',this)">Kontrollörler</button>
-              </div>
-              <div class="er-content" id="er-changes-content">
-                <div class="empty-state" id="er-empty" style="padding:32px 16px">
-                  <div class="empty-icon" style="font-size:32px">✏️</div>
-                  <div style="font-size:13px;color:var(--text2);margin-top:6px">Değişiklik yok.<br>PDF'e tıklayarak düzenleyin.</div>
-                </div>
-                <div id="er-changes-list"></div>
-              </div>
-              <div class="er-content" id="er-approvers-content" style="display:none">
-                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);margin-bottom:12px">Kontrollör Seç</div>
-                <div id="approvers-list"></div>
-              </div>
-              <div class="er-send">
-                <textarea class="form-textarea" id="approval-note" placeholder="Onay notu... (isteğe bağlı)" style="height:64px;margin-bottom:10px"></textarea>
-                <button class="btn btn-primary btn-block" onclick="submitApprovalRequest()">📨 Onay Talebi Gönder</button>
-                <button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="downloadEditedPDF()">⬇ Düzenlenmiş PDF İndir</button>
-              </div>
-            </div>
+        <!-- EDITOR state (Stirling iframe) -->
+        <div id="editor-active-state" style="display:none;flex-direction:column;height:100%;width:100%">
+          <!-- Approval toolbar -->
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
+            <button class="btn btn-ghost" style="padding:4px 12px;font-size:12px;height:32px" onclick="resetEditor()">🔄 Yeni PDF</button>
+            <span id="doc-name-display" style="font-size:13px;font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+            <span style="font-size:11px;padding:2px 8px;background:#fef2f2;color:#dc2626;border-radius:20px;border:1px solid #fecaca;flex-shrink:0;font-weight:600">🔒 TASLAK</span>
+            <select id="controller-select" class="form-input" style="min-width:160px;max-width:220px;height:32px;font-size:13px;padding:2px 8px">
+              <option value="">-- Kontrollör Seç --</option>
+            </select>
+            <input type="text" id="approval-note" class="form-input" placeholder="Onay notu... (isteğe bağlı)" style="min-width:140px;max-width:240px;height:32px;font-size:13px;padding:2px 8px">
+            <button class="btn btn-primary" style="height:32px;white-space:nowrap;font-size:13px" onclick="submitStirlingApproval()">📨 Onaya Gönder</button>
           </div>
+          <!-- Stirling PDF iframe -->
+          <iframe id="stirling-frame" src="/stirling/" style="flex:1;border:none;width:100%;min-height:0;display:block" allow="clipboard-read; clipboard-write"></iframe>
         </div>
+
       </div>
 
       <!-- ── PANEL: TICKETS (Approver) ── -->

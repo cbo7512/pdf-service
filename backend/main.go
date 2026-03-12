@@ -6,13 +6,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"mime/multipart"
+	"net/http"
 	"net/smtp"
 	"os"
 	"path/filepath"
@@ -626,6 +630,72 @@ func setAssignmentHandler(c *fiber.Ctx) error {
 
 // ─── FILE HANDLERS ────────────────────────────────────────────────────────────
 
+// applyWatermark calls Stirling PDF API to stamp "TASLAK" watermark on a PDF file.
+// Returns the watermarked PDF bytes. Caller should overwrite the stored file on success.
+func applyWatermark(filePath string) ([]byte, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("fileInput", filepath.Base(filePath))
+	if err != nil {
+		return nil, fmt.Errorf("create form file: %w", err)
+	}
+	if _, err = io.Copy(part, f); err != nil {
+		return nil, fmt.Errorf("copy file: %w", err)
+	}
+	_ = w.WriteField("watermarkType", "text")
+	_ = w.WriteField("watermarkText", "TASLAK")
+	_ = w.WriteField("fontSize", "30")
+	_ = w.WriteField("rotation", "-35")
+	_ = w.WriteField("opacity", "0.3")
+	_ = w.WriteField("widthSpacer", "50")
+	_ = w.WriteField("heightSpacer", "50")
+	_ = w.WriteField("customColor", "#DC2626")
+	w.Close()
+
+	stirlingURL := "http://stirling-pdf:8080/stirling/api/v1/misc/add-watermark"
+	resp, err := http.Post(stirlingURL, w.FormDataContentType(), &body)
+	if err != nil {
+		return nil, fmt.Errorf("stirling request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("stirling status: %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// GET /api/files/:id/content  — serves the stored (watermarked) PDF bytes
+func serveFileHandler(c *fiber.Ctx) error {
+	claims := getClaims(c)
+	id := c.Params("id")
+
+	var storedPath, uploadedBy string
+	err := db.QueryRow(context.Background(),
+		`SELECT stored_path, uploaded_by FROM files WHERE id=$1 AND status='ACTIVE'`, id).
+		Scan(&storedPath, &uploadedBy)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Dosya bulunamadı"})
+	}
+	// Users can only access their own files; controllers/admins can access any
+	if claims.Role == RoleUser && uploadedBy != claims.UserID {
+		return c.Status(403).JSON(fiber.Map{"error": "Yetkisiz"})
+	}
+
+	data, err := os.ReadFile(storedPath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Dosya okunamadı"})
+	}
+	c.Set("Content-Type", "application/pdf")
+	c.Set("Content-Disposition", `inline; filename="document.pdf"`)
+	return c.Send(data)
+}
+
 // POST /api/files/upload  (multipart: file + optional pdf_session_id + mod_session_id)
 func uploadFileHandler(c *fiber.Ctx) error {
 	claims := getClaims(c)
@@ -644,6 +714,17 @@ func uploadFileHandler(c *fiber.Ctx) error {
 	storedPath := fmt.Sprintf("/app/uploads/%s%s", fileID, ext)
 	if err = c.SaveFile(fh, storedPath); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Dosya kaydedilemedi"})
+	}
+
+	// Apply TASLAK watermark via Stirling PDF API
+	if wBytes, wErr := applyWatermark(storedPath); wErr == nil {
+		if writeErr := os.WriteFile(storedPath, wBytes, 0644); writeErr == nil {
+			log.Printf("✅ Watermark applied: %s", fh.Filename)
+		} else {
+			log.Printf("⚠️ Watermark write failed: %v", writeErr)
+		}
+	} else {
+		log.Printf("⚠️ Watermark skipped (Stirling unavailable): %v", wErr)
 	}
 
 	pdfSessID := c.FormValue("pdf_session_id")
@@ -1183,6 +1264,7 @@ func main() {
 	// Files (USER + ADMIN)
 	api.Post("/files/upload", requireAuth(RoleUser, RoleAdmin), uploadFileHandler)
 	api.Get("/files", requireAuth(RoleUser, RoleAdmin), listFilesHandler)
+	api.Get("/files/:id/content", requireAuth(RoleUser, RoleController, RoleAdmin), serveFileHandler)
 
 	// Tickets
 	api.Post("/tickets", requireAuth(RoleUser), createTicketHandler)
