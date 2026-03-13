@@ -115,7 +115,8 @@ INSERT INTO app_config (key, value) VALUES
     ('hint_user_email',   'kullanici@sirket.com'),
     ('hint_admin_email',  'admin@sirket.com'),
     ('branding_color',    '#2563eb'),
-    ('branding_logo',     '')
+    ('branding_logo',     ''),
+    ('watermark_text',    'TASLAK')
 ON CONFLICT (key) DO NOTHING;
 
 -- ─── INDEXES ──────────────────────────────────────────────────────────────────

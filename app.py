@@ -354,6 +354,73 @@ async def send_email(req: SendEmailRequest):
         raise HTTPException(500, f"E-posta gönderilemedi: {e}")
 
 
+# ─── WATERMARK ─────────────────────────────────────────────────────────────────
+
+@app.post("/watermark")
+async def watermark_pdf(
+    file: UploadFile = File(...),
+    text: str = "TASLAK",
+    opacity: float = 0.15,
+    color: str = "#DC2626",
+    fontsize: int = 56,
+    rotate: int = -35,
+):
+    """Apply a diagonal repeating text watermark to a PDF using PyMuPDF."""
+    content = await file.read()
+    try:
+        doc = fitz.open(stream=content, filetype="pdf")
+
+        # Parse hex color → (r, g, b) floats 0-1
+        hex_c = color.lstrip("#")
+        try:
+            rc = int(hex_c[0:2], 16) / 255
+            gc = int(hex_c[2:4], 16) / 255
+            bc = int(hex_c[4:6], 16) / 255
+        except Exception:
+            rc, gc, bc = 0.86, 0.15, 0.15
+
+        for page in doc:
+            pw = page.rect.width
+            ph = page.rect.height
+
+            # Diagonal grid: bottom-left → top-right sweep
+            # 3 columns × 4 rows of stamps
+            cols, rows = 3, 4
+            for row in range(rows):
+                for col in range(cols):
+                    x = (col + 0.3) * pw / cols
+                    y = (row + 0.6) * ph / rows
+                    # Slight offset alternation per row for better coverage
+                    if row % 2 == 1:
+                        x += pw / (cols * 2)
+                    try:
+                        page.insert_text(
+                            fitz.Point(x, y),
+                            text,
+                            fontsize=fontsize,
+                            fontname="hebo",      # Helvetica Bold
+                            color=(rc, gc, bc),
+                            fill_opacity=opacity,
+                            rotate=rotate,
+                            overlay=True,
+                        )
+                    except Exception:
+                        pass  # skip if point is outside page
+
+        pdf_bytes = doc.tobytes(garbage=4, deflate=True)
+        doc.close()
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="watermarked.pdf"',
+                "Content-Length": str(len(pdf_bytes)),
+            },
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Watermark hatası: {str(e)}")
+
+
 # ─── CLEANUP & HEALTH ──────────────────────────────────────────────────────────
 
 @app.delete("/session/{session_id}")

@@ -2373,18 +2373,35 @@ function openTicketReview(tid, el) {
   el.classList.add('active');
   const t = _currentTickets.find(x => x.id === tid); if (!t) return;
 
-  const editPayload = (typeof t.edit_payload === 'string')
-    ? JSON.parse(t.edit_payload || '{}')
-    : (t.edit_payload || {});
-  const modSessionId = editPayload.mod_session_id || t.mod_session_id || null;
-  const pdfSessId    = t.pdf_session_id || null;
+  // Use backend ticket preview endpoint — works even after pdf-service sessions expire
+  const previewUrl = `${API}/tickets/${tid}/preview`;
 
-  const origContent = pdfSessId
-    ? `<img src="${PDF_API}/page/${pdfSessId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.opacity='.3'">`
-    : `<div style="padding:40px;text-align:center;color:var(--text3)">Orijinal PDF oturumu sona erdi</div>`;
-  const modContent = modSessionId
-    ? `<img src="${PDF_API}/page/${modSessionId}/1?zoom=1.0" style="width:100%;border-radius:4px" onerror="this.style.opacity='.3'">`
-    : `<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Değiştirilmiş PDF önizlemesi yok</div>`;
+  // Embed PDF using object tag (same-origin, no cross-origin issues)
+  const origContent = `
+    <object data="${previewUrl}" type="application/pdf"
+            style="width:100%;height:420px;border-radius:4px;display:block"
+            aria-label="Orijinal PDF">
+      <div style="padding:20px;text-align:center;color:var(--text3)">
+        PDF görüntülenemiyor.
+        <br><a href="${previewUrl}" target="_blank" style="color:var(--primary);font-size:12px;margin-top:6px;display:inline-block">↗ Yeni sekmede aç</a>
+      </div>
+    </object>`;
+
+  // Modified pane: same document (Stirling flow — no server-side edits applied)
+  // Show watermark overlay reminder
+  const modContent = `
+    <div style="position:relative">
+      <object data="${previewUrl}" type="application/pdf"
+              style="width:100%;height:420px;border-radius:4px;display:block"
+              aria-label="TASLAK PDF">
+        <div style="padding:20px;text-align:center;color:var(--text3)">PDF görüntülenemiyor.</div>
+      </object>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+                  transform:rotate(-35deg);pointer-events:none;z-index:2">
+        <div style="font-size:28px;font-weight:900;color:rgba(220,38,38,.18);letter-spacing:4px;
+                    font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
+      </div>
+    </div>`;
 
   const changesArr = Array.isArray(editPayload.edits) ? editPayload.edits : [];
   const changesRaw = Array.isArray(t.changes) ? t.changes : (typeof t.changes === 'string' ? JSON.parse(t.changes || '[]') : []);
@@ -2517,6 +2534,16 @@ async function adminTab(tab, btn) {
   if (tab === 'approvers') await renderApproversTable();
 }
 
+async function saveWatermarkText() {
+  const text = (document.getElementById('as-watermark-text')?.value || '').trim().toUpperCase();
+  if (!text) { toast('Filigran metni boş olamaz', 'error'); return; }
+  const resp = await apiFetch('/admin/watermark-text', {
+    method: 'PUT', body: JSON.stringify({ text })
+  });
+  if (resp.ok) toast('Filigran metni kaydedildi ✓', 'success');
+  else { const e = await resp.json(); toast(e.error || 'Kaydetme hatası', 'error'); }
+}
+
 async function loadSMTPSettings() {
   try {
     const [smtpResp, hintsResp] = await Promise.all([
@@ -2542,6 +2569,15 @@ async function loadSMTPSettings() {
       if (hue) hue.value = h.user_email  || 'kullanici@sirket.com';
       if (hae) hae.value = h.admin_email || 'admin@sirket.com';
     }
+    // Load watermark text
+    try {
+      const wmResp = await apiFetch('/admin/watermark-text');
+      if (wmResp.ok) {
+        const wm = await wmResp.json();
+        const wmEl = document.getElementById('as-watermark-text');
+        if (wmEl && wm.text) wmEl.value = wm.text;
+      }
+    } catch(_) {}
   } catch(e) { console.warn('loadSMTPSettings error:', e); }
 }
 
@@ -3394,6 +3430,16 @@ document.addEventListener('keydown', e=>{
               <div class="toggle-row">
                 <div><div class="toggle-label">Onay Bildirimleri</div><div class="toggle-sub">Kontrollörlere bildirim gönder</div></div>
                 <label class="toggle-switch"><input type="checkbox" checked id="tog-notif"><div class="toggle-track"></div><div class="toggle-knob"></div></label>
+              </div>
+              <div class="divider"></div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Filigran Metni</label>
+                <div style="display:flex;gap:10px;align-items:center">
+                  <input class="form-input" id="as-watermark-text" value="TASLAK"
+                         placeholder="TASLAK" style="max-width:200px;font-family:'JetBrains Mono',monospace;letter-spacing:2px;font-weight:700">
+                  <button class="btn btn-ghost btn-sm" onclick="saveWatermarkText()">Kaydet</button>
+                </div>
+                <div class="form-hint">Yüklenen PDF'lere otomatik eklenen filigran yazısı</div>
               </div>
               <div style="display:flex;gap:10px;margin-top:20px">
                 <button class="btn btn-ghost" onclick="testSMTP()">📤 Test E-postası Gönder</button>

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -630,7 +631,8 @@ func setAssignmentHandler(c *fiber.Ctx) error {
 
 // ─── FILE HANDLERS ────────────────────────────────────────────────────────────
 
-// applyWatermark calls Stirling PDF API to stamp "TASLAK" watermark on a PDF file.
+// applyWatermark calls the PyMuPDF service to stamp "TASLAK" watermark on a PDF.
+// Uses the internal pdf-service /watermark endpoint for reliability.
 // Returns the watermarked PDF bytes. Caller should overwrite the stored file on success.
 func applyWatermark(filePath string) ([]byte, error) {
 	f, err := os.Open(filePath)
@@ -641,33 +643,43 @@ func applyWatermark(filePath string) ([]byte, error) {
 
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
-	part, err := w.CreateFormFile("fileInput", filepath.Base(filePath))
+	part, err := w.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
 		return nil, fmt.Errorf("create form file: %w", err)
 	}
 	if _, err = io.Copy(part, f); err != nil {
 		return nil, fmt.Errorf("copy file: %w", err)
 	}
-	_ = w.WriteField("watermarkType", "text")
-	_ = w.WriteField("watermarkText", "TASLAK")
-	_ = w.WriteField("fontSize", "30")
-	_ = w.WriteField("rotation", "-35")
-	_ = w.WriteField("opacity", "0.3")
-	_ = w.WriteField("widthSpacer", "50")
-	_ = w.WriteField("heightSpacer", "50")
+	// Watermark text can be customized via admin config
+	wmText := getConfig("watermark_text")
+	if wmText == "" {
+		wmText = "TASLAK"
+	}
+	_ = w.WriteField("text", wmText)
+	_ = w.WriteField("opacity", "0.15")
 	_ = w.WriteField("color", "#DC2626")
+	_ = w.WriteField("fontsize", "56")
+	_ = w.WriteField("rotate", "-35")
 	w.Close()
 
-	stirlingURL := "http://stirling-pdf:8080/stirling/api/v1/misc/add-watermark"
-	resp, err := http.Post(stirlingURL, w.FormDataContentType(), &body)
+	resp, err := http.Post(pdfAPI+"/watermark", w.FormDataContentType(), &body)
 	if err != nil {
-		return nil, fmt.Errorf("stirling request: %w", err)
+		return nil, fmt.Errorf("pdf-service watermark request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("stirling status: %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("pdf-service watermark status: %d — %s", resp.StatusCode, string(bodyBytes))
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// cleanFilePath returns the path to the original (pre-watermark) PDF copy.
+// Convention: <dir>/<id>_clean.pdf alongside the watermarked <id>.pdf
+func cleanFilePath(storedPath string) string {
+	ext := filepath.Ext(storedPath)
+	base := strings.TrimSuffix(storedPath, ext)
+	return base + "_clean" + ext
 }
 
 // GET /api/files/:id/content  — serves the stored (watermarked) PDF bytes
@@ -716,7 +728,15 @@ func uploadFileHandler(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Dosya kaydedilemedi"})
 	}
 
-	// Apply TASLAK watermark via Stirling PDF API
+	// ── Step 1: Save a clean (pre-watermark) copy for later clean download ──
+	cleanPath := cleanFilePath(storedPath)
+	if originalData, readErr := os.ReadFile(storedPath); readErr == nil {
+		if writeErr := os.WriteFile(cleanPath, originalData, 0644); writeErr != nil {
+			log.Printf("⚠️ Clean copy save failed: %v", writeErr)
+		}
+	}
+
+	// ── Step 2: Apply TASLAK watermark via pdf-service (PyMuPDF) ──
 	if wBytes, wErr := applyWatermark(storedPath); wErr == nil {
 		if writeErr := os.WriteFile(storedPath, wBytes, 0644); writeErr == nil {
 			log.Printf("✅ Watermark applied: %s", fh.Filename)
@@ -724,7 +744,7 @@ func uploadFileHandler(c *fiber.Ctx) error {
 			log.Printf("⚠️ Watermark write failed: %v", writeErr)
 		}
 	} else {
-		log.Printf("⚠️ Watermark skipped (Stirling unavailable): %v", wErr)
+		log.Printf("⚠️ Watermark skipped (pdf-service unavailable): %v", wErr)
 	}
 
 	pdfSessID := c.FormValue("pdf_session_id")
@@ -971,24 +991,22 @@ func rejectTicketHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
-// GET /api/tickets/:id/download  → proxies /apply to pdf-service
+// GET /api/tickets/:id/download  → serves clean (no-watermark) PDF after approval
 func downloadTicketHandler(c *fiber.Ctx) error {
 	claims := getClaims(c)
 	id := c.Params("id")
 
-	var reqID, sessID string
-	var payload json.RawMessage
+	var reqID, storedPath, origName string
 	var status string
 	err := db.QueryRow(context.Background(),
-		`SELECT t.requester_id, COALESCE(f.mod_session_id, f.pdf_session_id,''),
-              t.edit_payload, t.status
+		`SELECT t.requester_id, f.stored_path, f.original_name, t.status
          FROM tickets t JOIN files f ON f.id=t.file_id WHERE t.id=$1`, id).Scan(
-		&reqID, &sessID, &payload, &status)
+		&reqID, &storedPath, &origName, &status)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Bilet bulunamadı"})
 	}
 
-	// Access control
+	// Access control: USER can only download their own approved tickets
 	if claims.Role == RoleUser && reqID != claims.UserID {
 		return c.Status(403).JSON(fiber.Map{"error": "Yetkisiz"})
 	}
@@ -996,22 +1014,52 @@ func downloadTicketHandler(c *fiber.Ctx) error {
 		return c.Status(403).JSON(fiber.Map{"error": "Belge henüz onaylanmadı"})
 	}
 
-	// Proxy to pdf-service /apply or /download
-	// Forward request to Python PDF service
-	client := &fiber.Client{}
-	resp := client.Post(fmt.Sprintf("%s/apply/%s", pdfAPI, sessID))
-	resp.Set("Content-Type", "application/json")
-	resp.Body(payload)
-
-	code, body, errs := resp.Bytes()
-	if len(errs) > 0 || code != 200 {
-		return c.Status(502).JSON(fiber.Map{"error": "PDF servisi yanıt vermedi"})
+	// Serve clean copy (pre-watermark original). Falls back to watermarked if clean not found.
+	dlPath := cleanFilePath(storedPath)
+	if _, statErr := os.Stat(dlPath); os.IsNotExist(statErr) {
+		// Fallback: serve watermarked version (e.g. uploaded before this feature)
+		dlPath = storedPath
+		log.Printf("⚠️ Clean copy not found for ticket %s, serving watermarked", id)
 	}
 
-	addLog("download", "⬇", "Dosya indirildi", "", claims.Email)
+	data, err := os.ReadFile(dlPath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Dosya okunamadı"})
+	}
+
+	addLog("download", "⬇", "Onaylı belge indirildi", origName, claims.Email)
 	c.Set("Content-Type", "application/pdf")
-	c.Set("Content-Disposition", `attachment; filename="edited_document.pdf"`)
-	return c.Send(body)
+	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, origName))
+	return c.Send(data)
+}
+
+// GET /api/tickets/:id/preview  → serves watermarked PDF for controller review (no session needed)
+func ticketPreviewHandler(c *fiber.Ctx) error {
+	claims := getClaims(c)
+	id := c.Params("id")
+
+	var ctrlID, storedPath string
+	err := db.QueryRow(context.Background(),
+		`SELECT t.controller_id, f.stored_path
+         FROM tickets t JOIN files f ON f.id=t.file_id WHERE t.id=$1`, id).Scan(
+		&ctrlID, &storedPath)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Bilet bulunamadı"})
+	}
+
+	// Controllers can only preview tickets assigned to them; admins can access all
+	if claims.Role == RoleController && ctrlID != claims.UserID {
+		return c.Status(403).JSON(fiber.Map{"error": "Yetkisiz"})
+	}
+
+	data, err := os.ReadFile(storedPath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Dosya okunamadı"})
+	}
+
+	c.Set("Content-Type", "application/pdf")
+	c.Set("Content-Disposition", `inline; filename="preview.pdf"`)
+	return c.Send(data)
 }
 
 // ─── ADMIN HANDLERS ───────────────────────────────────────────────────────────
@@ -1107,6 +1155,28 @@ func saveHintsHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true})
 }
 
+// GET /api/admin/watermark-text
+func getWatermarkTextHandler(c *fiber.Ctx) error {
+	t := getConfig("watermark_text")
+	if t == "" {
+		t = "TASLAK"
+	}
+	return c.JSON(fiber.Map{"text": t})
+}
+
+// PUT /api/admin/watermark-text
+func saveWatermarkTextHandler(c *fiber.Ctx) error {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := c.BodyParser(&body); err != nil || body.Text == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Geçersiz istek"})
+	}
+	setConfig("watermark_text", body.Text)
+	addLog("config", "🏷", "Filigran metni güncellendi", body.Text, getClaims(c).Email)
+	return c.JSON(fiber.Map{"ok": true})
+}
+
 // ─── CLEANUP JOB ──────────────────────────────────────────────────────────────
 // Runs every hour:
 //   72h+  ACTIVE  → ARCHIVED (zip to /archives)
@@ -1127,43 +1197,144 @@ func runCleanup() {
 	now := time.Now()
 	logFile := fmt.Sprintf("/app/logs/deletion_%s.log", now.Format("2006_01_02"))
 
-	// 1. Archive expired ACTIVE files
+	// ── Step 1: Archive expired ACTIVE files (>3 days) into ZIP bundles ───────
+	// Group files by (requester_email, controller_email) for meaningful ZIP names.
 	rows, err := db.Query(context.Background(),
-		`SELECT id, stored_path, original_name FROM files
-         WHERE status='ACTIVE' AND expires_at < NOW()`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var id, path, name string
-			rows.Scan(&id, &path, &name)
-			// Move to archives (simplified: rename)
-			archivePath := strings.Replace(path, "/uploads/", "/archives/", 1)
-			os.MkdirAll(filepath.Dir(archivePath), 0755)
-			if err = os.Rename(path, archivePath); err == nil {
-				db.Exec(context.Background(),
-					`UPDATE files SET status='ARCHIVED', archived_at=NOW(),
-                     stored_path=$1 WHERE id=$2`, archivePath, id)
-				appendLog(logFile, fmt.Sprintf("[ARCHIVED] %s → %s", name, archivePath))
+		`SELECT f.id, f.stored_path, f.original_name,
+                COALESCE(u.email,'unknown') AS req_email,
+                COALESCE(c.email,'unknown') AS ctrl_email
+         FROM files f
+         LEFT JOIN users u ON u.id = f.uploaded_by
+         LEFT JOIN tickets t ON t.file_id = f.id
+         LEFT JOIN users c ON c.id = t.controller_id
+         WHERE f.status='ACTIVE' AND f.expires_at < NOW()
+         ORDER BY req_email, ctrl_email`)
+	if err != nil {
+		log.Printf("cleanup query error: %v", err)
+		return
+	}
+
+	// Collect into groups
+	groups := map[string][]archiveFile{}
+	for rows.Next() {
+		var fr archiveFile
+		if scanErr := rows.Scan(&fr.id, &fr.path, &fr.name, &fr.requesterEmail, &fr.controllerEmail); scanErr == nil {
+			key := fr.requesterEmail + "|" + fr.controllerEmail
+			groups[key] = append(groups[key], fr)
+		}
+	}
+	rows.Close()
+
+	for key, files := range groups {
+		parts := strings.SplitN(key, "|", 2)
+		reqEmail := sanitizeForFilename(parts[0])
+		ctrlEmail := sanitizeForFilename(parts[1])
+
+		// ZIP name: user_controller_YYYY-MM-DD.zip
+		zipName := fmt.Sprintf("%s__%s__%s.zip", reqEmail, ctrlEmail, now.Format("2006-01-02"))
+		zipPath := "/app/archives/" + zipName
+		os.MkdirAll("/app/archives", 0755)
+
+		if err2 := appendToZip(zipPath, files); err2 != nil {
+			log.Printf("⚠️ ZIP creation failed (%s): %v", zipName, err2)
+			continue
+		}
+
+		// Update DB and remove originals
+		for _, fr := range files {
+			db.Exec(context.Background(),
+				`UPDATE files SET status='ARCHIVED', archived_at=NOW(),
+                 stored_path=$1 WHERE id=$2`, zipPath+"#"+fr.name, fr.id)
+			// Remove watermarked and clean copies
+			os.Remove(fr.path)
+			os.Remove(cleanFilePath(fr.path))
+			appendLog(logFile, fmt.Sprintf("[ARCHIVED→ZIP] %s → %s", fr.name, zipName))
+		}
+		addLog("archive", "📦", "Dosyalar arşivlendi",
+			fmt.Sprintf("%d dosya → %s", len(files), zipName), "system")
+	}
+
+	// ── Step 2: Delete ZIP archives older than 30 days (admin retention) ──────
+	rows2, err := db.Query(context.Background(),
+		`SELECT DISTINCT stored_path FROM files
+         WHERE status='ARCHIVED' AND archived_at < NOW() - INTERVAL '30 days'`)
+	if err != nil {
+		return
+	}
+	zipPaths := []string{}
+	for rows2.Next() {
+		var sp string
+		if rows2.Scan(&sp) == nil {
+			// Extract zip path (stored_path may be "zip_path#filename")
+			zipP := strings.SplitN(sp, "#", 2)[0]
+			if !containsStr(zipPaths, zipP) {
+				zipPaths = append(zipPaths, zipP)
 			}
 		}
 	}
+	rows2.Close()
 
-	// 2. Delete archives older than 30 days
-	rows2, err := db.Query(context.Background(),
-		`SELECT id, stored_path, original_name FROM files
+	for _, zp := range zipPaths {
+		os.Remove(zp)
+		appendLog(logFile, fmt.Sprintf("[DELETED] %s at %s", zp, now.Format(time.RFC3339)))
+	}
+	// Mark all related file records as DELETED
+	db.Exec(context.Background(),
+		`UPDATE files SET status='DELETED', deleted_at=NOW()
          WHERE status='ARCHIVED' AND archived_at < NOW() - INTERVAL '30 days'`)
-	if err == nil {
-		defer rows2.Close()
-		for rows2.Next() {
-			var id, path, name string
-			rows2.Scan(&id, &path, &name)
-			os.Remove(path)
-			db.Exec(context.Background(),
-				`UPDATE files SET status='DELETED', deleted_at=NOW() WHERE id=$1`, id)
-			appendLog(logFile, fmt.Sprintf("[DELETED] %s at %s", name, now.Format(time.RFC3339)))
-			addLog("delete", "🗑", "Dosya kalıcı silindi", name, "system")
+	if len(zipPaths) > 0 {
+		addLog("delete", "🗑", "Arşiv ZIPler kalıcı silindi",
+			fmt.Sprintf("%d ZIP silindi", len(zipPaths)), "system")
+	}
+}
+
+// archiveFile holds data for a single file to be zipped during cleanup.
+type archiveFile struct {
+	id, path, name, requesterEmail, controllerEmail string
+}
+
+// appendToZip adds each file to (or creates) the ZIP archive at zipPath.
+func appendToZip(zipPath string, files []archiveFile) error {
+	zf, err := os.OpenFile(zipPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("open zip: %w", err)
+	}
+	defer zf.Close()
+
+	zw := zip.NewWriter(zf)
+	defer zw.Close()
+
+	for _, af := range files {
+		data, readErr := os.ReadFile(af.path)
+		if readErr != nil {
+			log.Printf("⚠️ Cannot read %s for zip: %v", af.path, readErr)
+			continue
+		}
+		fw, createErr := zw.Create(af.name)
+		if createErr != nil {
+			continue
+		}
+		_, _ = fw.Write(data)
+	}
+	return nil
+}
+
+func sanitizeForFilename(s string) string {
+	replacer := strings.NewReplacer("@", "_at_", ".", "_", "/", "_", "\\", "_", " ", "_")
+	result := replacer.Replace(s)
+	if len(result) > 40 {
+		result = result[:40]
+	}
+	return result
+}
+
+func containsStr(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
 		}
 	}
+	return false
 }
 
 func appendLog(path, line string) {
@@ -1272,6 +1443,7 @@ func main() {
 	api.Put("/tickets/:id/approve", requireAuth(RoleController, RoleAdmin), approveTicketHandler)
 	api.Put("/tickets/:id/reject", requireAuth(RoleController, RoleAdmin), rejectTicketHandler)
 	api.Get("/tickets/:id/download", requireAuth(RoleUser, RoleController, RoleAdmin), downloadTicketHandler)
+	api.Get("/tickets/:id/preview", requireAuth(RoleController, RoleAdmin), ticketPreviewHandler)
 
 	// Admin panel
 	adm := api.Group("/admin", requireAuth(RoleAdmin))
@@ -1282,6 +1454,8 @@ func main() {
 	adm.Get("/disk", diskUsageHandler)
 	adm.Get("/hints", getHintsHandler)
 	adm.Put("/hints", saveHintsHandler)
+	adm.Get("/watermark-text", getWatermarkTextHandler)
+	adm.Put("/watermark-text", saveWatermarkTextHandler)
 
 	port := getEnvOrDefault("PORT", "8080")
 	log.Printf("🚀 DocFlow API running on :%s", port)
