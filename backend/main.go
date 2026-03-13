@@ -211,15 +211,22 @@ func generateToken(user User) (string, error) {
 
 func requireAuth(roles ...string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// Accept token from Authorization header OR ?token= query param
+		// (query param needed for <iframe>/<object> tags that cannot set headers)
+		var tokenStr string
 		header := c.Get("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
+		if strings.HasPrefix(header, "Bearer ") {
+			tokenStr = strings.TrimPrefix(header, "Bearer ")
+		} else if qt := c.Query("token"); qt != "" {
+			tokenStr = qt
+		} else {
 			return c.Status(401).JSON(fiber.Map{"error": "Yetkisiz"})
 		}
-		tokenStr := strings.TrimPrefix(header, "Bearer ")
+
 		claims := &Claims{}
-		token, err := jwt.ParseWithClaims(tokenStr, claims,
+		tok, err := jwt.ParseWithClaims(tokenStr, claims,
 			func(t *jwt.Token) (interface{}, error) { return jwtSecret, nil })
-		if err != nil || !token.Valid {
+		if err != nil || !tok.Valid {
 			return c.Status(401).JSON(fiber.Map{"error": "Geçersiz token"})
 		}
 		if len(roles) > 0 {
@@ -655,23 +662,39 @@ func applyWatermark(filePath string) ([]byte, error) {
 	if wmText == "" {
 		wmText = "TASLAK"
 	}
+	// Form fields — FastAPI reads these as Form(...) parameters alongside the UploadFile
 	_ = w.WriteField("text", wmText)
 	_ = w.WriteField("opacity", "0.15")
 	_ = w.WriteField("color", "#DC2626")
 	_ = w.WriteField("fontsize", "56")
 	_ = w.WriteField("rotate", "-35")
-	w.Close()
+	w.Close() // Must close before reading FormDataContentType and body
 
-	resp, err := http.Post(pdfAPI+"/watermark", w.FormDataContentType(), &body)
+	// Use custom client with 45s timeout — prevents upload hang if pdf-service is down
+	client := &http.Client{Timeout: 45 * time.Second}
+	req, err := http.NewRequest(http.MethodPost, pdfAPI+"/watermark", &body)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pdf-service watermark request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("pdf-service watermark status: %d — %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("pdf-service watermark status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
-	return io.ReadAll(resp.Body)
+	wBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read watermark response: %w", err)
+	}
+	if len(wBytes) < 100 {
+		return nil, fmt.Errorf("pdf-service returned suspiciously small response (%d bytes)", len(wBytes))
+	}
+	return wBytes, nil
 }
 
 // cleanFilePath returns the path to the original (pre-watermark) PDF copy.
@@ -737,14 +760,15 @@ func uploadFileHandler(c *fiber.Ctx) error {
 	}
 
 	// ── Step 2: Apply TASLAK watermark via pdf-service (PyMuPDF) ──
+	log.Printf("🔄 Applying watermark to %s via %s/watermark …", fh.Filename, pdfAPI)
 	if wBytes, wErr := applyWatermark(storedPath); wErr == nil {
 		if writeErr := os.WriteFile(storedPath, wBytes, 0644); writeErr == nil {
-			log.Printf("✅ Watermark applied: %s", fh.Filename)
+			log.Printf("✅ Watermark applied successfully: %s (%d bytes)", fh.Filename, len(wBytes))
 		} else {
-			log.Printf("⚠️ Watermark write failed: %v", writeErr)
+			log.Printf("⚠️ Watermark bytes OK but write failed: %v", writeErr)
 		}
 	} else {
-		log.Printf("⚠️ Watermark skipped (pdf-service unavailable): %v", wErr)
+		log.Printf("❌ Watermark FAILED for %s: %v", fh.Filename, wErr)
 	}
 
 	pdfSessID := c.FormValue("pdf_session_id")
@@ -1185,12 +1209,12 @@ func saveWatermarkTextHandler(c *fiber.Ctx) error {
 func startCleanupJob() {
 	ticker := time.NewTicker(1 * time.Hour)
 	go func() {
-		for {
+		// Wait for first tick before running — avoids heavy DB scan on every restart
+		for range ticker.C {
 			runCleanup()
-			<-ticker.C
 		}
 	}()
-	log.Println("✅ Cleanup job started (hourly)")
+	log.Println("✅ Cleanup job started (runs hourly, first run in 1h)")
 }
 
 func runCleanup() {

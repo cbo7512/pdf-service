@@ -2368,79 +2368,124 @@ async function renderApproverTickets(preloaded) {
   updateNavBadges();
 }
 
-function openTicketReview(tid, el) {
+// openTicketReview: async — JWT ile PDF fetch eder, Blob URL ile iframe'de gösterir.
+// <object>/<img> tag'ları Authorization header gönderemez; fetch+blob zorunludur.
+async function openTicketReview(tid, el) {
   document.querySelectorAll('.ticket-card').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
-  const t = _currentTickets.find(x => x.id === tid); if (!t) return;
+  const t = _currentTickets.find(x => x.id === tid);
+  if (!t) return;
 
-  // Use backend ticket preview endpoint — works even after pdf-service sessions expire
-  const previewUrl = `${API}/tickets/${tid}/preview`;
+  const panel = document.getElementById('review-panel-col');
 
-  // Embed PDF using object tag (same-origin, no cross-origin issues)
-  const origContent = `
-    <object data="${previewUrl}" type="application/pdf"
-            style="width:100%;height:420px;border-radius:4px;display:block"
-            aria-label="Orijinal PDF">
-      <div style="padding:20px;text-align:center;color:var(--text3)">
-        PDF görüntülenemiyor.
-        <br><a href="${previewUrl}" target="_blank" style="color:var(--primary);font-size:12px;margin-top:6px;display:inline-block">↗ Yeni sekmede aç</a>
-      </div>
-    </object>`;
-
-  // Modified pane: same document (Stirling flow — no server-side edits applied)
-  // Show watermark overlay reminder
-  const modContent = `
-    <div style="position:relative">
-      <object data="${previewUrl}" type="application/pdf"
-              style="width:100%;height:420px;border-radius:4px;display:block"
-              aria-label="TASLAK PDF">
-        <div style="padding:20px;text-align:center;color:var(--text3)">PDF görüntülenemiyor.</div>
-      </object>
-      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-                  transform:rotate(-35deg);pointer-events:none;z-index:2">
-        <div style="font-size:28px;font-weight:900;color:rgba(220,38,38,.18);letter-spacing:4px;
-                    font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
-      </div>
+  // Yüklenirken spinner göster
+  panel.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                height:220px;color:var(--text2);gap:14px">
+      <div style="font-size:36px;animation:spin 1s linear infinite">⏳</div>
+      <div style="font-size:14px">PDF yükleniyor…</div>
     </div>`;
 
-  const changesArr = Array.isArray(editPayload.edits) ? editPayload.edits : [];
-  const changesRaw = Array.isArray(t.changes) ? t.changes : (typeof t.changes === 'string' ? JSON.parse(t.changes || '[]') : []);
-  const changesDisplay = changesRaw.map(c =>
-    `<div class="rchange-item"><div class="rchange-icon">📝</div><div class="rchange-info"><div class="rchange-title">${typeof c === 'string' ? c : (c.desc || JSON.stringify(c))}</div></div></div>`
-  ).join('') || '<div style="color:var(--text3);font-size:13px">Değişiklik yok</div>';
+  // ── JWT ile PDF byte'larını çek → Blob URL oluştur ──────────────────────────
+  // <object>/<iframe src="…"> direkt URL kullanamaz çünkü Authorization header ekleyemez.
+  // fetch() JWT header ile alır, createObjectURL ile güvenli local URL oluşturur.
+  let blobUrl = null;
+  try {
+    const resp = await apiFetch(`/tickets/${tid}/preview`);
+    if (!resp.ok) {
+      const msg = await resp.text().catch(() => resp.status);
+      throw new Error(`Sunucu ${resp.status}: ${msg}`);
+    }
+    const blob = await resp.blob();
+    if (blob.size < 100) throw new Error('Geçersiz PDF verisi');
+    blobUrl = URL.createObjectURL(blob);
+  } catch(e) {
+    panel.innerHTML = `
+      <div style="padding:32px;text-align:center">
+        <div style="font-size:32px;margin-bottom:12px">⚠️</div>
+        <div style="color:var(--red);font-size:14px;font-weight:600">PDF yüklenemedi</div>
+        <div style="color:var(--text3);font-size:12px;margin-top:6px">${e.message}</div>
+      </div>`;
+    console.error('[openTicketReview] PDF fetch error:', e);
+    return;
+  }
 
-  document.getElementById('review-panel-col').innerHTML = `
+  // ── PDF viewer (iframe with blob URL) ───────────────────────────────────────
+  const pdfFrame = (label) => `
+    <iframe src="${blobUrl}"
+            style="width:100%;height:420px;border:none;border-radius:6px;display:block;background:#f5f5f5"
+            title="${label}"></iframe>`;
+
+  // ── Değişiklik listesi ───────────────────────────────────────────────────────
+  let changesRaw = [];
+  try {
+    changesRaw = Array.isArray(t.changes)
+      ? t.changes
+      : JSON.parse(typeof t.changes === 'string' ? (t.changes || '[]') : '[]');
+  } catch(_) { changesRaw = []; }
+
+  const changesDisplay = changesRaw.length
+    ? changesRaw.map(c => `
+        <div class="rchange-item">
+          <div class="rchange-icon">📝</div>
+          <div class="rchange-info">
+            <div class="rchange-title">${typeof c === 'string' ? c : (c.desc || JSON.stringify(c))}</div>
+          </div>
+        </div>`).join('')
+    : '<div style="color:var(--text3);font-size:13px">Değişiklik kaydı yok</div>';
+
+  panel.innerHTML = `
     <div class="card" style="margin-bottom:18px">
       <div class="card-header">
         <div>
           <div class="card-title">${t.file_name}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:3px">${new Date(t.created_at).toLocaleString('tr-TR')} · ${t.requester_email}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:3px">
+            ${new Date(t.created_at).toLocaleString('tr-TR')} · ${t.requester_email}
+          </div>
         </div>
         ${statusBadge(t.status)}
       </div>
       <div class="card-body">
         <div class="pdf-compare-view">
+
           <div class="pdf-compare-pane">
-            <div class="pdf-compare-label">Orijinal</div>
-            <div style="position:relative">${origContent}</div>
+            <div class="pdf-compare-label">📄 Orijinal (TASLAK Filigranı)</div>
+            ${pdfFrame('Orijinal PDF')}
           </div>
+
           <div class="pdf-compare-pane">
-            <div class="pdf-compare-label">Değiştirilmiş</div>
+            <div class="pdf-compare-label">✏️ Değiştirilmiş (TASLAK Filigranı)</div>
             <div style="position:relative">
-              ${modContent}
-              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(-35deg);pointer-events:none">
-                <div style="font-size:28px;font-weight:900;color:rgba(220,38,38,.12);letter-spacing:4px;font-family:'JetBrains Mono',monospace;white-space:nowrap">TASLAK</div>
+              ${pdfFrame('Değiştirilmiş PDF')}
+              <div style="position:absolute;inset:0;display:flex;align-items:center;
+                          justify-content:center;transform:rotate(-35deg);
+                          pointer-events:none;z-index:2;overflow:hidden">
+                <div style="font-size:26px;font-weight:900;color:rgba(220,38,38,.13);
+                            letter-spacing:6px;white-space:nowrap;font-family:monospace">
+                  TASLAK
+                </div>
               </div>
             </div>
           </div>
+
         </div>
-        ${t.note ? `<div style="margin-top:14px;background:var(--primary-l);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px">"${t.note}"</div>` : ''}
+        ${t.note ? `
+        <div style="margin-top:14px;background:var(--primary-l);border-left:3px solid var(--primary);
+                    padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px">
+          "${t.note}"
+        </div>` : ''}
       </div>
     </div>
+
     <div class="card" style="margin-bottom:18px">
-      <div class="card-header"><span class="card-title">✏️ Değişiklikler (${changesRaw.length})</span></div>
-      <div class="card-body"><div class="review-changes-list">${changesDisplay}</div></div>
+      <div class="card-header">
+        <span class="card-title">✏️ Değişiklikler (${changesRaw.length})</span>
+      </div>
+      <div class="card-body">
+        <div class="review-changes-list">${changesDisplay}</div>
+      </div>
     </div>
+
     <div style="display:flex;gap:12px">
       <button class="btn btn-danger" style="flex:1" onclick="openRejectModal('${t.id}')">✗ Reddet</button>
       <button class="btn btn-success" style="flex:1" onclick="approveTicket('${t.id}')">✓ Onayla</button>
@@ -2506,17 +2551,34 @@ async function renderMyTickets(preloaded) {
 }
 
 async function downloadTicket(ticketId) {
-  toast('PDF hazırlanıyor…', 'info');
+  toast('Temiz PDF hazırlanıyor… ⏳', 'info');
   try {
     const resp = await apiFetch(`/tickets/${ticketId}/download`);
-    if (!resp.ok) { toast('İndirme başarısız', 'error'); return; }
+    if (!resp.ok) {
+      let errMsg = 'İndirme başarısız';
+      try { const j = await resp.json(); errMsg = j.error || errMsg; } catch(_) {}
+      toast(errMsg, 'error');
+      return;
+    }
+    // Extract filename from Content-Disposition if available
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const nameMatch = cd.match(/filename="?([^"]+)"?/);
+    const filename = nameMatch ? nameMatch[1] : 'onaylanan_belge.pdf';
+
     const blob = await resp.blob();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    a.href = url; a.download = 'onaylanan_belge.pdf'; a.click();
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast('Dosya indirildi! ✓', 'success');
-  } catch(e) { toast('İndirme hatası: ' + e.message, 'error'); }
+    toast('✅ Filigransız temiz PDF indirildi!', 'success');
+  } catch(e) {
+    toast('İndirme hatası: ' + e.message, 'error');
+    console.error('[downloadTicket]', e);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

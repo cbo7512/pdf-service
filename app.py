@@ -5,7 +5,7 @@ DocFlow PDF Service
 - Text replacement via redaction + re-insert
 Uses PyMuPDF (fitz) for all PDF operations.
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import fitz  # PyMuPDF
@@ -359,11 +359,11 @@ async def send_email(req: SendEmailRequest):
 @app.post("/watermark")
 async def watermark_pdf(
     file: UploadFile = File(...),
-    text: str = "TASLAK",
-    opacity: float = 0.15,
-    color: str = "#DC2626",
-    fontsize: int = 56,
-    rotate: int = -35,
+    text: str = Form("TASLAK"),
+    opacity: float = Form(0.15),
+    color: str = Form("#DC2626"),
+    fontsize: int = Form(56),
+    rotate: int = Form(-35),
 ):
     """Apply a diagonal repeating text watermark to a PDF using PyMuPDF."""
     content = await file.read()
