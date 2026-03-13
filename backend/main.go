@@ -705,6 +705,83 @@ func cleanFilePath(storedPath string) string {
 	return base + "_clean" + ext
 }
 
+// modifiedCleanPath returns the clean (pre-watermark) copy of the modified PDF.
+// Convention: <dir>/<id>_modified_clean.pdf alongside <id>_modified.pdf
+func modifiedCleanPath(modPath string) string {
+	if modPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(modPath)
+	base := strings.TrimSuffix(modPath, ext)
+	return base + "_clean" + ext
+}
+
+// POST /api/files/:id/modified  — accepts user-edited PDF, saves it with watermark for controller preview
+// Stores: <id>_modified_clean.pdf (original edits, no watermark) + <id>_modified.pdf (watermarked, for controller)
+func saveModifiedFileHandler(c *fiber.Ctx) error {
+	claims := getClaims(c)
+	id := c.Params("id")
+
+	// Verify the file exists and belongs to this user
+	var storedPath, uploadedBy string
+	err := db.QueryRow(context.Background(),
+		`SELECT stored_path, uploaded_by FROM files WHERE id=$1`, id).
+		Scan(&storedPath, &uploadedBy)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Dosya bulunamadı"})
+	}
+	if claims.Role == RoleUser && uploadedBy != claims.UserID {
+		return c.Status(403).JSON(fiber.Map{"error": "Yetkisiz"})
+	}
+
+	fh, err := c.FormFile("file")
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Dosya gerekli"})
+	}
+	if !strings.HasSuffix(strings.ToLower(fh.Filename), ".pdf") {
+		return c.Status(400).JSON(fiber.Map{"error": "Sadece PDF kabul edilir"})
+	}
+
+	// Save the modified PDF to disk
+	modPath := fmt.Sprintf("/app/uploads/%s_modified.pdf", id)
+	if err = c.SaveFile(fh, modPath); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Değiştirilmiş dosya kaydedilemedi"})
+	}
+
+	// ── Step 1: Save clean copy BEFORE applying watermark ──
+	modClean := modifiedCleanPath(modPath)
+	if data, readErr := os.ReadFile(modPath); readErr == nil {
+		if writeErr := os.WriteFile(modClean, data, 0644); writeErr != nil {
+			log.Printf("⚠️ Modified clean copy save failed: %v", writeErr)
+		} else {
+			log.Printf("✅ Modified clean saved: %s", modClean)
+		}
+	}
+
+	// ── Step 2: Apply TASLAK watermark to modified PDF for controller preview ──
+	log.Printf("🔄 Watermarking modified PDF for file %s …", id)
+	if wBytes, wErr := applyWatermark(modPath); wErr == nil {
+		if writeErr := os.WriteFile(modPath, wBytes, 0644); writeErr == nil {
+			log.Printf("✅ Modified PDF watermarked: %s (%d bytes)", id, len(wBytes))
+		} else {
+			log.Printf("⚠️ Modified watermark write failed: %v", writeErr)
+		}
+	} else {
+		log.Printf("❌ Modified PDF watermark FAILED: %v", wErr)
+	}
+
+	// ── Step 3: Update DB ──
+	_, dbErr := db.Exec(context.Background(),
+		`UPDATE files SET modified_path=$1 WHERE id=$2`, modPath, id)
+	if dbErr != nil {
+		log.Printf("⚠️ DB update for modified_path failed: %v", dbErr)
+	}
+
+	addLog("modify", "✏️", "PDF değişikliği kaydedildi",
+		fmt.Sprintf("%s → %s", claims.Email, fh.Filename), claims.Email)
+	return c.JSON(fiber.Map{"ok": true, "modified_path": modPath})
+}
+
 // GET /api/files/:id/content  — serves the stored (watermarked) PDF bytes
 func serveFileHandler(c *fiber.Ctx) error {
 	claims := getClaims(c)
@@ -1016,16 +1093,18 @@ func rejectTicketHandler(c *fiber.Ctx) error {
 }
 
 // GET /api/tickets/:id/download  → serves clean (no-watermark) PDF after approval
+// Priority: modified_clean → modified → original_clean → original (watermarked fallback)
 func downloadTicketHandler(c *fiber.Ctx) error {
 	claims := getClaims(c)
 	id := c.Params("id")
 
-	var reqID, storedPath, origName string
+	var reqID, storedPath, origName, modifiedPath string
 	var status string
 	err := db.QueryRow(context.Background(),
-		`SELECT t.requester_id, f.stored_path, f.original_name, t.status
+		`SELECT t.requester_id, f.stored_path, f.original_name, t.status,
+                COALESCE(f.modified_path,'')
          FROM tickets t JOIN files f ON f.id=t.file_id WHERE t.id=$1`, id).Scan(
-		&reqID, &storedPath, &origName, &status)
+		&reqID, &storedPath, &origName, &status, &modifiedPath)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Bilet bulunamadı"})
 	}
@@ -1038,12 +1117,35 @@ func downloadTicketHandler(c *fiber.Ctx) error {
 		return c.Status(403).JSON(fiber.Map{"error": "Belge henüz onaylanmadı"})
 	}
 
-	// Serve clean copy (pre-watermark original). Falls back to watermarked if clean not found.
-	dlPath := cleanFilePath(storedPath)
-	if _, statErr := os.Stat(dlPath); os.IsNotExist(statErr) {
-		// Fallback: serve watermarked version (e.g. uploaded before this feature)
-		dlPath = storedPath
-		log.Printf("⚠️ Clean copy not found for ticket %s, serving watermarked", id)
+	// ── Determine the best clean file to serve ───────────────────────────────
+	// 1st choice: clean modified (user edits applied, no watermark)
+	// 2nd choice: watermarked modified (if clean missing somehow)
+	// 3rd choice: clean original (no user edits, no watermark)
+	// 4th choice: watermarked original (last resort fallback)
+	var dlPath, logNote string
+
+	if modifiedPath != "" {
+		mc := modifiedCleanPath(modifiedPath)
+		if _, statErr := os.Stat(mc); statErr == nil {
+			dlPath = mc
+			logNote = "değiştirilmiş+temiz"
+		} else if _, statErr := os.Stat(modifiedPath); statErr == nil {
+			dlPath = modifiedPath
+			logNote = "değiştirilmiş+filigranli(fallback)"
+			log.Printf("⚠️ Modified clean not found for ticket %s — serving watermarked modified", id)
+		}
+	}
+
+	if dlPath == "" {
+		oc := cleanFilePath(storedPath)
+		if _, statErr := os.Stat(oc); statErr == nil {
+			dlPath = oc
+			logNote = "orijinal+temiz"
+		} else {
+			dlPath = storedPath
+			logNote = "orijinal+filigranli(fallback)"
+			log.Printf("⚠️ No clean copy found for ticket %s — serving watermarked original", id)
+		}
 	}
 
 	data, err := os.ReadFile(dlPath)
@@ -1051,22 +1153,27 @@ func downloadTicketHandler(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Dosya okunamadı"})
 	}
 
-	addLog("download", "⬇", "Onaylı belge indirildi", origName, claims.Email)
+	log.Printf("⬇ Download ticket %s [%s]: %s", id, logNote, origName)
+	addLog("download", "⬇", "Onaylı belge indirildi",
+		fmt.Sprintf("%s (%s)", origName, logNote), claims.Email)
 	c.Set("Content-Type", "application/pdf")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, origName))
 	return c.Send(data)
 }
 
-// GET /api/tickets/:id/preview  → serves watermarked PDF for controller review (no session needed)
+// GET /api/tickets/:id/preview  → serves watermarked PDF for controller review
+// ?pane=original  (default) → original watermarked PDF (stored_path)
+// ?pane=modified           → modified watermarked PDF (modified_path), falls back to original if none
+// Response header X-Has-Modified: true/false  → tells frontend whether a modified version exists
 func ticketPreviewHandler(c *fiber.Ctx) error {
 	claims := getClaims(c)
 	id := c.Params("id")
 
-	var ctrlID, storedPath string
+	var ctrlID, storedPath, modifiedPath string
 	err := db.QueryRow(context.Background(),
-		`SELECT t.controller_id, f.stored_path
+		`SELECT t.controller_id, f.stored_path, COALESCE(f.modified_path,'')
          FROM tickets t JOIN files f ON f.id=t.file_id WHERE t.id=$1`, id).Scan(
-		&ctrlID, &storedPath)
+		&ctrlID, &storedPath, &modifiedPath)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Bilet bulunamadı"})
 	}
@@ -1076,7 +1183,31 @@ func ticketPreviewHandler(c *fiber.Ctx) error {
 		return c.Status(403).JSON(fiber.Map{"error": "Yetkisiz"})
 	}
 
-	data, err := os.ReadFile(storedPath)
+	// Inform frontend whether a modified version exists
+	hasModified := modifiedPath != ""
+	c.Set("X-Has-Modified", fmt.Sprintf("%v", hasModified))
+
+	// Select which version to serve based on ?pane= query parameter
+	pane := c.Query("pane", "original")
+	var servePath string
+	if pane == "modified" && modifiedPath != "" {
+		servePath = modifiedPath
+	} else {
+		servePath = storedPath
+	}
+
+	// Verify file exists on disk
+	if _, statErr := os.Stat(servePath); os.IsNotExist(statErr) {
+		log.Printf("⚠️ Preview file not found on disk: %s (ticket %s, pane %s)", servePath, id, pane)
+		// Fallback to stored (original) if modified is missing
+		if pane == "modified" && storedPath != "" {
+			servePath = storedPath
+		} else {
+			return c.Status(404).JSON(fiber.Map{"error": "PDF dosyası diskte bulunamadı"})
+		}
+	}
+
+	data, err := os.ReadFile(servePath)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Dosya okunamadı"})
 	}
@@ -1418,9 +1549,10 @@ func main() {
 	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
-		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
+		AllowOrigins:  "*",
+		AllowHeaders:  "Origin, Content-Type, Accept, Authorization",
+		AllowMethods:  "GET, POST, PUT, DELETE, OPTIONS",
+		ExposeHeaders: "X-Has-Modified, Content-Disposition",
 	}))
 
 	// ── Routes ────────────────────────────────────────────────────────────
@@ -1458,6 +1590,7 @@ func main() {
 
 	// Files (USER + ADMIN)
 	api.Post("/files/upload", requireAuth(RoleUser, RoleAdmin), uploadFileHandler)
+	api.Post("/files/:id/modified", requireAuth(RoleUser, RoleAdmin), saveModifiedFileHandler)
 	api.Get("/files", requireAuth(RoleUser, RoleAdmin), listFilesHandler)
 	api.Get("/files/:id/content", requireAuth(RoleUser, RoleController, RoleAdmin), serveFileHandler)
 
