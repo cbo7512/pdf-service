@@ -1409,11 +1409,32 @@ async function submitStirlingApproval() {
   if (!controllerId) { toast('Lütfen bir kontrollör seçin', 'error'); return; }
   if (!currentFileId) { toast('Önce PDF yükleyin', 'error'); return; }
 
+  // ── DEĞİŞTİRİLMİŞ PDF KONTROLÜ ───────────────────────────────────────────
+  // Kullanıcı Stirling'den indirdiği PDF'i henüz yüklemediyse uyar.
+  // Değişiklik yapmadan gönderim için kullanıcının onayı alınır.
+  if (!_modifiedPdfUploaded) {
+    const devamEt = confirm(
+      '⚠️ Değiştirilmiş PDF yüklenmedi!\n\n' +
+      'Stirling\'de yaptığınız değişiklikler kontrollöre gösterilmeyecek.\n' +
+      'Kontrollör her iki panelde de orijinal belgeyi görecektir.\n\n' +
+      'Değiştirilmiş PDF yüklemek için:\n' +
+      '  1) Stirling\'de PDF\'i düzenleyin ve indirin\n' +
+      '  2) "✏️ Değiştirilmiş PDF Yükle" butonuna tıklayın\n' +
+      '  3) Ardından tekrar onaya gönderin\n\n' +
+      'Değişiklik olmadan orijinal belgeyi onaya göndermek istiyor musunuz?'
+    );
+    if (!devamEt) return;
+  }
+
   const note = (document.getElementById('approval-note')?.value || '').trim();
+  const changes = _modifiedPdfUploaded
+    ? [{ desc: 'Kullanıcı Stirling üzerinden PDF değişikliği yaptı', page: 0 }]
+    : [];
+
   const body = {
     file_id:       currentFileId,
     controller_id: controllerId,
-    changes:       [],
+    changes:       changes,
     edit_payload:  {},
     note:          note,
   };
@@ -2027,66 +2048,10 @@ function reapplyPageEdits() {
   // Nothing extra needed — this function is kept for compatibility
 }
 
-// ── API-BASED PDF DOWNLOAD ────────────────────────────────────
-async function downloadEditedPDF() {
-  if (!pdfSessionId) {
-    toast('Önce bir PDF yükleyin', 'error');
-    return;
-  }
-
-  // Build edit list from pageEdits store
-  const edits = [];
-  for (const [pageStr, pageEditMap] of Object.entries(pageEdits)) {
-    const pg = parseInt(pageStr);
-    for (const [idxStr, newText] of Object.entries(pageEditMap)) {
-      const idx = parseInt(idxStr);
-      // Find the original entry (may be on a different page — scan all)
-      const entry = textItems.find(e => e._idx === idx && e._page === pg);
-      if (!entry) continue;
-      if (newText === entry.origText) continue; // unchanged
-
-      edits.push({
-        id:       idxStr,
-        page:     pg,
-        ox:       entry._ox   ?? entry.cx,
-        oy:       entry._oy   ?? entry.topY,
-        ox1:      entry._ox1  ?? (entry.cx + entry.w),
-        oy1:      entry._oy1  ?? (entry.topY + entry.h),
-        original: entry.origText,
-        new_text: newText,
-        font:     entry.fontName || 'Helvetica',
-        size:     entry._size   ?? entry.fSize,
-        bold:     entry.bold    ?? false,
-        italic:   entry.italic  ?? false,
-        color:    entry.color   || '#000000',
-      });
-    }
-  }
-
-  try {
-    toast('PDF hazırlanıyor…', 'info');
-    const resp = await fetch(`${PDF_API}/apply/${pdfSessionId}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ edits }),
-    });
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(err);
-    }
-    const blob = await resp.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'edited_' + (currentDocName || 'document.pdf');
-    a.click();
-    URL.revokeObjectURL(url);
-    toast('PDF indirildi ✓', 'success');
-  } catch(e) {
-    console.error('Download error:', e);
-    toast('İndirme hatası: ' + e.message, 'error');
-  }
-}
+// ── DIRECT PDF DOWNLOAD DEVRE DIŞI (GÜVENLİK) ────────────────
+// downloadEditedPDF() kaldırıldı — kullanıcılar PDF'i yalnızca
+// onay alındıktan sonra /tickets/:id/download üzerinden indirebilir.
+// Bu fonksiyon onay akışını atlayarak doğrudan indirmeye izin veriyordu.
 
 // ── UNDO ─────────────────────────────────────────────────────
 function undoLastEdit() {
@@ -2537,12 +2502,51 @@ async function openTicketReview(tid, el) {
             <div class="rchange-title">${typeof c === 'string' ? c : (c.desc || JSON.stringify(c))}</div>
           </div>
         </div>`).join('')
-    : '<div style="color:var(--text3);font-size:13px">Değişiklik kaydı yok</div>';
+    : `<div style="display:flex;align-items:center;gap:8px;color:var(--text3);font-size:13px;padding:4px 0">
+        <span style="font-size:16px">ℹ️</span>
+        <span>Kullanıcı değişiklik kaydı girmedi — sağ paneli orijinalle karşılaştırın</span>
+       </div>`;
 
-  // ── Modifiye uyarısı ────────────────────────────────────────────────────────
+  // ── Modifiye uyarısı / vurgusu ────────────────────────────────────────────
   const modLabel = hasModified
-    ? '<span style="font-size:11px;padding:2px 6px;background:#f0fdf4;color:#16a34a;border-radius:10px;border:1px solid #bbf7d0;margin-left:6px;font-weight:600">✓ DEĞİŞTİRİLMİŞ</span>'
-    : '<span style="font-size:11px;padding:2px 6px;background:#fef9c3;color:#92400e;border-radius:10px;border:1px solid #fde68a;margin-left:6px">değişiklik yok</span>';
+    ? '<span style="font-size:11px;padding:2px 8px;background:#f0fdf4;color:#16a34a;border-radius:10px;border:1px solid #bbf7d0;margin-left:6px;font-weight:700">✓ DEĞİŞTİRİLMİŞ</span>'
+    : '<span style="font-size:11px;padding:2px 8px;background:#fef9c3;color:#92400e;border-radius:10px;border:1px solid #fde68a;margin-left:6px;font-weight:600">⚠ DEĞİŞİKLİK YOK</span>';
+
+  // Sağ pane içeriği — değiştirilmiş versiyon yoksa bilgi kutusu göster
+  const rightPaneContent = hasModified
+    ? pdfFrame(modBlobUrl, 'Değiştirilmiş PDF')
+    : `<div style="background:#fffbeb;border:2px dashed #fbbf24;border-radius:6px;
+                  padding:32px 20px;text-align:center;color:#92400e">
+        <div style="font-size:32px;margin-bottom:10px">📋</div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px">Değiştirilmiş PDF Yüklenmedi</div>
+        <div style="font-size:12px;line-height:1.6">
+          Talep sahibi Stirling'den düzenlediği PDF'i sisteme yüklemedi.<br>
+          Her iki panel de aynı (orijinal) belgeyi göstermektedir.
+        </div>
+       </div>`;
+
+  // Değişiklik vurgu banner'ı — değiştirilmiş versiyon varsa göster
+  const changeBanner = hasModified
+    ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
+                  padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">🔍</span>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#1e40af">Değiştirilmiş PDF mevcut</div>
+          <div style="font-size:12px;color:#3b82f6;margin-top:2px">
+            Sol panel = orijinal TASLAK · Sağ panel = değiştirilmiş TASLAK · Farkları karşılaştırın
+          </div>
+        </div>
+       </div>`
+    : `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;
+                  padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">⚠️</span>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#92400e">Değiştirilmiş PDF yok</div>
+          <div style="font-size:12px;color:#b45309;margin-top:2px">
+            Talep sahibi henüz değiştirilmiş sürüm yüklemedi. Orijinal belgeyi inceleyerek karar verin.
+          </div>
+        </div>
+       </div>`;
 
   panel.innerHTML = `
     <div class="card" style="margin-bottom:18px">
@@ -2556,23 +2560,30 @@ async function openTicketReview(tid, el) {
         ${statusBadge(t.status)}
       </div>
       <div class="card-body">
+        ${changeBanner}
         <div class="pdf-compare-view">
 
           <div class="pdf-compare-pane">
-            <div class="pdf-compare-label">📄 Orijinal (TASLAK)</div>
+            <div class="pdf-compare-label" style="display:flex;align-items:center;gap:6px">
+              <span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">SOL · ORİJİNAL</span>
+              📄 Orijinal (TASLAK)
+            </div>
             ${pdfFrame(origBlobUrl, 'Orijinal PDF')}
           </div>
 
           <div class="pdf-compare-pane">
-            <div class="pdf-compare-label">✏️ Değiştirilmiş (TASLAK) ${modLabel}</div>
-            ${pdfFrame(modBlobUrl, 'Değiştirilmiş PDF')}
+            <div class="pdf-compare-label" style="display:flex;align-items:center;gap:6px">
+              <span style="background:${hasModified ? '#dcfce7' : '#fef9c3'};color:${hasModified ? '#15803d' : '#92400e'};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">SAĞ · ${hasModified ? 'DEĞİŞTİRİLMİŞ' : 'ORİJİNAL (aynı)'}</span>
+              ✏️ Değiştirilmiş (TASLAK) ${modLabel}
+            </div>
+            ${rightPaneContent}
           </div>
 
         </div>
         ${t.note ? `
         <div style="margin-top:14px;background:var(--primary-l);border-left:3px solid var(--primary);
                     padding:10px 14px;border-radius:0 8px 8px 0;font-size:13px">
-          "${t.note}"
+          <strong>📝 Kullanıcı notu:</strong> "${t.note}"
         </div>` : ''}
       </div>
     </div>
@@ -2580,6 +2591,7 @@ async function openTicketReview(tid, el) {
     <div class="card" style="margin-bottom:18px">
       <div class="card-header">
         <span class="card-title">✏️ Değişiklikler (${changesRaw.length})</span>
+        ${hasModified ? '<span style="font-size:11px;padding:2px 8px;background:#f0fdf4;color:#16a34a;border-radius:10px;border:1px solid #bbf7d0;font-weight:600">PDF değiştirildi</span>' : ''}
       </div>
       <div class="card-body">
         <div class="review-changes-list">${changesDisplay}</div>
@@ -3447,24 +3459,30 @@ document.addEventListener('keydown', e=>{
                            border-radius:20px;border:1.5px solid #fecaca;flex-shrink:0;font-weight:600;
                            cursor:pointer;font-family:inherit">🔒 TASLAK Önizle</button>
 
-            <!-- Step 1: Upload modified PDF from Stirling output -->
+            <!-- Adım 1: Değiştirilmiş PDF yükleme -->
+            <span style="font-size:11px;color:var(--text3);font-weight:600;white-space:nowrap">
+              1️⃣ Stirling'de düzenle → indir →
+            </span>
             <input type="file" accept=".pdf" id="modified-pdf-input" style="display:none"
                    onchange="uploadModifiedPDF(this)">
             <button class="btn btn-ghost"
                     style="height:32px;white-space:nowrap;font-size:12px;border:1.5px dashed var(--border)"
                     onclick="document.getElementById('modified-pdf-input').click()"
-                    title="Stirling'de düzenledikten sonra indirdiğiniz PDF'i buradan yükleyin">
+                    title="Stirling'de düzenleyip indirdiğiniz PDF'i buradan yükleyin — kontrollör orijinalle karşılaştırır">
               ✏️ Değiştirilmiş PDF Yükle
             </button>
             <span id="modified-pdf-badge" style="display:none;font-size:11px;padding:2px 8px;
                   background:#f0fdf4;color:#16a34a;border-radius:20px;border:1px solid #bbf7d0;
-                  font-weight:600">✓ Değiştirilmiş</span>
+                  font-weight:600">✅ Yüklendi</span>
 
-            <!-- Step 2: Select controller and submit -->
+            <!-- Adım 2: Kontrollör seç ve onaya gönder -->
+            <span style="font-size:11px;color:var(--text3);font-weight:600;white-space:nowrap">
+              2️⃣
+            </span>
             <select id="controller-select" class="form-input" style="min-width:160px;max-width:220px;height:32px;font-size:13px;padding:2px 8px">
               <option value="">-- Kontrollör Seç --</option>
             </select>
-            <input type="text" id="approval-note" class="form-input" placeholder="Onay notu... (isteğe bağlı)" style="min-width:140px;max-width:240px;height:32px;font-size:13px;padding:2px 8px">
+            <input type="text" id="approval-note" class="form-input" placeholder="Değişiklik notu (isteğe bağlı)" style="min-width:140px;max-width:240px;height:32px;font-size:13px;padding:2px 8px">
             <button class="btn btn-primary" style="height:32px;white-space:nowrap;font-size:13px" onclick="submitStirlingApproval()">📨 Onaya Gönder</button>
           </div>
           <!-- Stirling PDF iframe -->
