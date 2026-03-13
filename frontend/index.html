@@ -332,6 +332,7 @@ body {
 /* PANELS */
 .panel { display: none; }
 .panel.active { display: block; animation: fadeIn 0.2s; }
+#panel-editor.active { display: flex; }
 
 /* ─────────────────────────────────────────────────────
    PANEL: DASHBOARD
@@ -987,8 +988,8 @@ function hideBackupSection() {
 }
 
 async function verifyBackupCode() {
-  const email = document.getElementById('login-email').value.trim();
-  const code  = (document.getElementById('backup-code-input').value || '').trim().toUpperCase();
+  const email = document.getElementById('backup-email').value.trim();
+  const code  = (document.getElementById('backup-code').value || '').trim().toUpperCase();
   if (!code) { toast('Yedek kodu girin', 'error'); return; }
   try {
     const resp = await fetch(`${API}/auth/verify-backup`, {
@@ -3222,7 +3223,7 @@ document.addEventListener('keydown', e=>{
       </div>
 
       <!-- ── PANEL: PDF EDITOR (Stirling) ── -->
-      <div class="panel" id="panel-editor" style="margin:-28px;height:calc(100vh - 58px);display:flex;flex-direction:column">
+      <div class="panel" id="panel-editor" style="margin:-28px;height:calc(100vh - 58px);flex-direction:column">
 
         <!-- UPLOAD state -->
         <div id="editor-upload-state" style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;width:100%">

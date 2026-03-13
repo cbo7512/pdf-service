@@ -655,7 +655,7 @@ func applyWatermark(filePath string) ([]byte, error) {
 	_ = w.WriteField("opacity", "0.3")
 	_ = w.WriteField("widthSpacer", "50")
 	_ = w.WriteField("heightSpacer", "50")
-	_ = w.WriteField("customColor", "#DC2626")
+	_ = w.WriteField("color", "#DC2626")
 	w.Close()
 
 	stirlingURL := "http://stirling-pdf:8080/stirling/api/v1/misc/add-watermark"
